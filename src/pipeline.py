@@ -136,18 +136,35 @@ def _matrix16(inst) -> list[float]:
     return [v for row in rows for v in row]
 
 
-def run_blender(scene_json: str, out_glb: str, gltf: bool, obj: bool) -> None:
+def run_cmd(cmd: list[str], progress=None) -> None:
+    """Run a subprocess; if `progress` is given, stream stdout lines to it."""
+    if progress is None:
+        subprocess.run(cmd, check=True)
+        return
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         text=True, bufsize=1)
+    for line in p.stdout:
+        line = line.strip()
+        if line:
+            progress(line)
+    if p.wait():
+        raise subprocess.CalledProcessError(p.returncode, cmd)
+
+
+def run_blender(scene_json: str, out_glb: str, gltf: bool, obj: bool,
+                progress=None) -> None:
     cmd = [config.BLENDER_EXE, "--background", "--python",
            config.BUILD_SCENE_SCRIPT, "--", scene_json, out_glb]
     if gltf:
         cmd.append("--gltf")
     if obj:
         cmd.append("--obj")
-    subprocess.run(cmd, check=True)
+    run_cmd(cmd, progress)
 
 
 def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
-            run: bool = True, fx: bool = False, textures: dict | None = None) -> str:
+            run: bool = True, fx: bool = False, textures: dict | None = None,
+            progress=None) -> str:
     meshes_dir = config.FX_DIR if fx else config.MESHES_DIR
     textures_dir = config.FX_DIR if fx else config.TEXTURES_DIR
     out_base = config.FX_OUT if fx else config.OUT_DIR
@@ -158,7 +175,7 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
                                   textures=textures)
     out_glb = os.path.join(model, f"{mesh_name}.glb")
     if run:
-        run_blender(scene_json, out_glb, gltf, obj)
+        run_blender(scene_json, out_glb, gltf, obj, progress=progress)
     return out_glb
 
 

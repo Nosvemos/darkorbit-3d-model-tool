@@ -25,7 +25,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import config
-from src.pipeline import convert
+from src.pipeline import convert, run_cmd
 
 
 def _clamp(v, lo, hi):
@@ -79,12 +79,14 @@ def stable_crop(out_dir: str, raw: dict, padding: int, origin: str) -> dict:
 
 
 def render(mesh_name: str, overrides: dict, fx: bool = False,
-           textures: dict | None = None) -> str:
+           textures: dict | None = None, progress=None) -> str:
     base = config.FX_OUT if fx else config.OUT_DIR
     glb = os.path.join(config.model_dir(mesh_name, base), f"{mesh_name}.glb")
     # rebuild the glb if it's missing or the user picked textures manually
     if textures or not os.path.exists(glb):
-        convert(mesh_name, fx=fx, textures=textures)
+        if progress:
+            progress("building glb…")
+        convert(mesh_name, fx=fx, textures=textures, progress=progress)
 
     work = config.work_dir(mesh_name, base)
     sprites = config.sprites_dir(mesh_name, base)
@@ -100,9 +102,10 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f)
 
-    subprocess.run([config.BLENDER_EXE, "--background", "--python",
-                    config.RENDER_SCRIPT, "--", glb, sprites, cfg_path],
-                   check=True)
+    if progress:
+        progress("rendering frames…")
+    run_cmd([config.BLENDER_EXE, "--background", "--python",
+             config.RENDER_SCRIPT, "--", glb, sprites, cfg_path], progress)
 
     raw_path = os.path.join(sprites, f"{mesh_name}_render_raw.json")
     with open(raw_path, encoding="utf-8") as f:

@@ -12,6 +12,7 @@ import glob
 import json
 import os
 import re
+import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -84,21 +85,22 @@ def api_textures(q):
     return {"items": sorted(names)}
 
 
-def api_convert(body):
+def api_convert(body, progress=None):
     name = body["name"]
     fx = bool(body.get("fx"))
     glb = pipeline.convert(name, gltf=bool(body.get("gltf")),
                            obj=bool(body.get("obj")), fx=fx,
-                           textures=body.get("textures") or None)
+                           textures=body.get("textures") or None, progress=progress)
     return {"ok": True, "glb": _rel_url(glb)}
 
 
-def api_render(body):
+def api_render(body, progress=None):
     name = body["name"]
     fx = bool(body.get("fx"))
     ov = {k: v for k, v in body.items()
           if k in config.RENDER_DEFAULTS and v not in (None, "")}
-    sprites = render_mod.render(name, ov, fx=fx, textures=body.get("textures") or None)
+    sprites = render_mod.render(name, ov, fx=fx, textures=body.get("textures") or None,
+                                progress=progress)
     base = config.FX_OUT if fx else config.OUT_DIR
     coords = os.path.join(sprites, f"{name}_Coords.json")
     glb = os.path.join(config.model_dir(name, base), f"{name}.glb")
@@ -107,12 +109,51 @@ def api_render(body):
             "glb": _rel_url(glb) if os.path.exists(glb) else None}
 
 
-def api_fx(body):
+def api_fx(body, progress=None):
     name = body["name"]
+    if progress:
+        progress("simulating particles…")
     sprites = fx_render.render(name, int(body.get("frames", 30)),
                                int(body.get("resolution", 256)),
                                float(body.get("margin", 1.2)))
     return {"ok": True, "frames": _frame_urls(sprites, name)}
+
+
+# --- background jobs (so long Blender runs stream progress, don't block) -----
+
+_JOBS: dict = {}
+_LOCK = threading.Lock()
+_SEQ = [0]
+
+
+def _start_job(fn):
+    with _LOCK:
+        _SEQ[0] += 1
+        jid = str(_SEQ[0])
+    job = {"status": "running", "log": [], "result": None, "error": None}
+    _JOBS[jid] = job
+
+    def run():
+        def prog(line):
+            job["log"].append(line)
+            del job["log"][:-200]               # keep the tail bounded
+        try:
+            job["result"] = fn(prog)
+            job["status"] = "done"
+        except Exception as e:
+            job["error"] = str(e)
+            job["status"] = "error"
+
+    threading.Thread(target=run, daemon=True).start()
+    return jid
+
+
+def api_job(q):
+    job = _JOBS.get(q.get("id", [""])[0])
+    if not job:
+        return {"status": "unknown"}
+    return {"status": job["status"], "log": job["log"][-8:],
+            "result": job["result"], "error": job["error"]}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -139,6 +180,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, api_info(q))
             if path == "/api/textures":
                 return self._send(200, api_textures(q))
+            if path == "/api/job":
+                return self._send(200, api_job(q))
             if path.startswith("/out/"):
                 return self._send_file(os.path.join(
                     config.OUT_DIR, path[len("/out/"):].replace("/", os.sep)))
@@ -155,10 +198,9 @@ class Handler(BaseHTTPRequestHandler):
         fn = routes.get(u.path)
         if not fn:
             return self._send(404, {"error": "not found"})
-        try:
-            self._send(200, fn(body))
-        except Exception as e:
-            self._send(500, {"error": str(e)})
+        # run as a background job and return its id; the UI polls /api/job
+        jid = _start_job(lambda prog: fn(body, prog))
+        self._send(200, {"job": jid})
 
     def _send_file(self, abs_path):
         if not os.path.isfile(abs_path):

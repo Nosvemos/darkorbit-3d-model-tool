@@ -121,6 +121,21 @@ const isEffect = () => kind === "effects";
 
 async function jget(u){ const r = await fetch(u); if(!r.ok) throw new Error((await r.json()).error||r.status); return r.json(); }
 async function jpost(u,b){ const r = await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}); if(!r.ok) throw new Error((await r.json()).error||r.status); return r.json(); }
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+// start a background job, poll it, stream its latest log line into the status
+async function runJob(endpoint, body){
+  const {job} = await jpost(endpoint, body);
+  const t0 = Date.now();
+  while(true){
+    await sleep(700);
+    const s = await jget("/api/job?id="+job);
+    const secs = ((Date.now()-t0)/1000).toFixed(0);
+    const last = s.log && s.log.length ? s.log[s.log.length-1] : "working";
+    if(s.status==="running") setStatus(`(${secs}s) ${last}`.slice(0,90));
+    else if(s.status==="done") return s.result;
+    else throw new Error(s.error || s.status);
+  }
+}
 
 async function loadList(){
   const d = await jget("/api/list?kind="+kind);
@@ -236,14 +251,14 @@ function busy(b){ document.querySelectorAll("#actions button").forEach(x=>x.disa
 async function runConvert(){
   busy(true); setStatus("converting… (Blender)");
   try{
-    const r = await jpost("/api/convert",{name:sel, fx:isFx(), gltf:$("#o_gltf").checked, obj:$("#o_obj").checked, textures:collectTextures()});
+    const r = await runJob("/api/convert",{name:sel, fx:isFx(), gltf:$("#o_gltf").checked, obj:$("#o_obj").checked, textures:collectTextures()});
     setStatus("converted ✓"); showLinks({glb:r.glb});
   }catch(e){ setStatus("error: "+e.message); } finally{ busy(false); }
 }
 async function runRender(){
   busy(true); setStatus("rendering sprites… (Blender)");
   try{
-    const r = await jpost("/api/render", Object.assign({name:sel, fx:isFx(), textures:collectTextures()}, collectOpts()));
+    const r = await runJob("/api/render", Object.assign({name:sel, fx:isFx(), textures:collectTextures()}, collectOpts()));
     setStatus(`rendered ${r.frames.length} frames ✓`);
     playFrames(r.frames); showLinks(r);
   }catch(e){ setStatus("error: "+e.message); } finally{ busy(false); }
@@ -251,7 +266,7 @@ async function runRender(){
 async function runFx(){
   busy(true); setStatus("simulating particles…");
   try{
-    const r = await jpost("/api/fx", Object.assign({name:sel}, collectOpts()));
+    const r = await runJob("/api/fx", Object.assign({name:sel}, collectOpts()));
     setStatus(`rendered ${r.frames.length} frames ✓`); playFrames(r.frames);
   }catch(e){ setStatus("error: "+e.message); } finally{ busy(false); }
 }
