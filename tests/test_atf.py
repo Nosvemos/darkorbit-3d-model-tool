@@ -47,6 +47,22 @@ def test_decode_rejects_unsupported_format():
         decode(d)
 
 
+def test_decode_raw_rgb_format0():
+    pytest.importorskip("imagecodecs")
+    import struct
+
+    import imagecodecs
+    rgb = np.zeros((8, 8, 3), np.uint8)
+    rgb[..., 0] = 200  # solid red-ish
+    blk = imagecodecs.jpegxr_encode(rgb)
+    header = b"ATF" + bytes([0, 0, 0, 0xFF, 2, 0, 1, 0, 0]) + bytes([0, 3, 3, 1])
+    atf = header + struct.pack(">I", len(blk)) + blk
+    rgba = decode(atf)
+    assert rgba.shape == (8, 8, 4)
+    assert (rgba[..., 3] == 255).all()           # format 0 -> opaque
+    assert np.allclose(rgba[..., 0], 200, atol=12)
+
+
 def test_full_roundtrip():
     pytest.importorskip("imagecodecs")
     w = h = 8

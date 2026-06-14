@@ -143,6 +143,17 @@ def decode(raw: bytes) -> np.ndarray:
     blocks = list(_blocks(raw, off))
     n = (width // 4) * (height // 4)
 
+    if fmt in (0, 1):
+        # raw RGB(888) / RGBA(8888): each block is one mip stored as JPEG-XR
+        img = imagecodecs.jpegxr_decode(blocks[0])
+        if img.ndim == 2:
+            img = np.repeat(img[..., None], 3, axis=2)
+        if fmt == 1 and img.shape[2] >= 4:
+            return np.dstack([img[..., :3], img[..., 3]])
+        rgb = img[..., :3]
+        alpha = np.full(rgb.shape[:2], 255, np.uint8)
+        return np.dstack([rgb, alpha])
+
     if fmt == 2:
         if len(blocks) < 2:
             raise ATFError(f"expected 2 blocks, got {len(blocks)}")
