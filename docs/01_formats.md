@@ -1,77 +1,77 @@
-# Binary Format Bulguları
+# Binary Format Findings
 
-> Bu dosya, gerçek dosyalar üzerinde yapılan hexdump + decompress denemelerinden çıkarıldı.
-> Tam parse implementasyonu sırasında detaylar doğrulanacak/genişletilecek.
+> This file was derived from hexdump + decompress experiments performed on the actual files.
+> Details will be verified/expanded during the full parse implementation.
 
 ## AWD (`meshes/*.awd`)
 
-DarkOrbit, Away3D motorunu kullanır → dosyalar **AWD2** formatındadır,
-zlib ile sıkıştırılmış gövdeye sahip "AWDc" varyantı.
+DarkOrbit uses the Away3D engine → the files are in **AWD2** format,
+an "AWDc" variant with a zlib-compressed body.
 
 ### Header (12 byte)
 ```
-offset  bytes              anlam
+offset  bytes              meaning
 0x00    41 57 44 63        magic "AWDc"
 0x04    01                 version major
-0x05    e0 00              flags (uint16) — doğrulanacak
+0x05    e0 00              flags (uint16) — to be verified
 0x07    01                 compression = 1 (zlib)
 0x08    51 ca 01 00        uncompressed length (uint32 LE) = 117329
-0x0C    78 da ...          zlib deflate stream (gövde başlangıcı)
+0x0C    78 da ...          zlib deflate stream (start of body)
 ```
 
-### Doğrulanan davranış (cubikon.awd)
-- Dosya boyutu: 117341 byte.
-- `zlib.decompress(data[12:])` → **226821 byte** açılmış gövde.
-- Açılan gövde başı: `01 00 00 00 00 ff 00 46 ...`
-- İçinde ASCII: `AwayBuilder`, `1.0.0` → generator metadata bloğu mevcut.
+### Verified behavior (cubikon.awd)
+- File size: 117341 byte.
+- `zlib.decompress(data[12:])` → **226821 byte** decompressed body.
+- Start of decompressed body: `01 00 00 00 00 ff 00 46 ...`
+- ASCII inside: `AwayBuilder`, `1.0.0` → generator metadata block present.
 
-### Gövde = AWD2 blok listesi
-AWD2 blok yapısı (her blok):
+### Body = AWD2 block list
+AWD2 block structure (each block):
 ```
 uint32  block id
 uint8   namespace
-uint8   type        (ör: TriangleGeometry, Container, MeshInstance, Material, Texture...)
+uint8   type        (e.g.: TriangleGeometry, Container, MeshInstance, Material, Texture...)
 uint8   flags
 uint32  length
 bytes   data[length]
 ```
-Parser bu blokları sırayla okuyup:
-- **Geometri blokları** → vertex/index/uv/normal stream'leri.
-- **Container/SceneGraph blokları** → `main`, `engine_*`, `laserpoint_*` isimli node'lar + transform matrisleri.
-- **Material/Texture blokları** → hangi mesh hangi texture'ı kullanıyor (isim eşleşmesi
-  zaten texture dosya adlarıyla uyumlu: `cubikon_diffuse_512` vb.).
+The parser reads these blocks in order and:
+- **Geometry blocks** → vertex/index/uv/normal streams.
+- **Container/SceneGraph blocks** → nodes named `main`, `engine_*`, `laserpoint_*` + transform matrices.
+- **Material/Texture blocks** → which mesh uses which texture (name matching
+  is already consistent with the texture file names: `cubikon_diffuse_512` etc.).
 
-> Not: Tam AWD2 blok tip tablosu Away3D AWD2 spesifikasyonundan alınacak. Bizim için
-> kritik blok tipleri: namespace 0'daki geometry, scene-graph container, mesh instance.
+> Note: The full AWD2 block type table will be taken from the Away3D AWD2 specification. The
+> critical block types for us are: geometry in namespace 0, scene-graph container, mesh instance.
 
 ## ATF (`textures/*.atf`)
 
-Adobe Texture Format — GPU'ya uygun sıkıştırılmış texture konteyneri.
+Adobe Texture Format — a GPU-friendly compressed texture container.
 
 ### Header (cubikon_diffuse_512.atf)
 ```
-offset  bytes              anlam
+offset  bytes              meaning
 0x00    41 54 46           magic "ATF"
-0x03    00 00 00 ff 02 ... format/length/version alanları (doğrulanacak)
+0x03    00 00 00 ff 02 ... format/length/version fields (to be verified)
 ```
 
-### Bilinenler
-- ATF blokları DXT (S3TC: BC1/BC3), PVRTC veya ETC subformatlarından biri olabilir;
-  PC istemcisi büyük olasılıkla **DXT** kullanır.
-- Her mipmap seviyesi raw veya **LZMA / JPEG-XR** ile ek sıkıştırılmış olabilir.
-- `textures/temp_lzma_*.bin` dosyaları → önceki bir oturumda ATF içindeki **LZMA bloğu**
-  çıkarma denemesi yapıldığını gösterir (LZMA sıkıştırması mevcut).
-- `cubikon_diffuse_512.png` zaten var → elle ATF2PNG dönüşümünün referans çıktısı
-  (decoder doğrulaması için karşılaştırma örneği olarak kullanılabilir).
+### Known facts
+- ATF blocks may be one of the DXT (S3TC: BC1/BC3), PVRTC or ETC subformats;
+  the PC client most likely uses **DXT**.
+- Each mipmap level may be raw or additionally compressed with **LZMA / JPEG-XR**.
+- The `textures/temp_lzma_*.bin` files → indicate that in a previous session an attempt was made
+  to extract the **LZMA block** inside the ATF (LZMA compression present).
+- `cubikon_diffuse_512.png` already exists → the reference output of a manual ATF2PNG conversion
+  (can be used as a comparison sample for decoder verification).
 
-### Decode zinciri (hedef)
+### Decode chain (target)
 ```
-.atf → header parse → subformat + mip tablosu
-     → her mip: (varsa) LZMA/JPEG-XR decompress
-     → DXT/BC decode → RGBA piksel
-     → PIL ile .png yaz
+.atf → header parse → subformat + mip table
+     → each mip: (if present) LZMA/JPEG-XR decompress
+     → DXT/BC decode → RGBA pixel
+     → write .png with PIL
 ```
 
-### Temizlik
-`textures/temp_lzma_*.bin` (5 dosya) artık geçici deneme artığı — pipeline kurulunca
-silinebilir. Şimdilik referans olarak bırakılıyor.
+### Cleanup
+`textures/temp_lzma_*.bin` (5 files) are now leftover temporary experiment artifacts — they can be
+deleted once the pipeline is set up. For now they are left in place as reference.

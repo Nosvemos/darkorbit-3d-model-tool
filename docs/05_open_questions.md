@@ -1,23 +1,23 @@
-# Açık Sorular / Netleştirilecek Kararlar
+# Open Questions / Decisions to Clarify
 
-## ✅ Çözülen Kararlar
-1. **Blender yolu**: `C:\Program Files (x86)\Steam\steamapps\common\Blender\blender.exe`
+## ✅ Resolved Decisions
+1. **Blender path**: `C:\Program Files (x86)\Steam\steamapps\common\Blender\blender.exe`
    — **Blender 5.1.2** (Steam, build 2026-05-19).
-   ⚠️ Mevcut blender scriptleri eski API kullanıyor (`BLENDER_EEVEE` → 5.x'te değişti,
-   glTF export operatör adları). Faz 3/5'te 5.x API'sine uyarlanacak.
-2. **Birincil çıktı**: **`.glb`** (texture gömülü, empties+hiyerarşi korunur).
-   `.gltf` ve `.obj` opsiyonel bayrakla üretilir.
-3. **ATF decode**: **Kendi pure-Python decoder** (DXT + LZMA). Harici araç bağımlılığı yok.
+   ⚠️ The current blender scripts use the old API (`BLENDER_EEVEE` → changed in 5.x,
+   glTF export operator names). To be adapted to the 5.x API in Phase 3/5.
+2. **Primary output**: **`.glb`** (embedded texture, empties+hierarchy preserved).
+   `.gltf` and `.obj` are produced via an optional flag.
+3. **ATF decode**: **Our own pure-Python decoder** (DXT + LZMA). No external tool dependency.
 
-## Kalan / İlk çıktıda netleşecek noktalar
+## Remaining / points to be clarified after the first output
 
-## 4. Empties parent davranışı
-`engine_/laserpoint_` → Empty + `main` altına parent (mevcut script gibi).
-glTF export'ta empties node olarak korunur. Onay: bu davranış doğru mu?
+## 4. Empties parent behavior
+`engine_/laserpoint_` → Empty + parented under `main` (like the current script).
+Empties are preserved as nodes in glTF export. Confirmation: is this behavior correct?
 
-## 5. Texture çözünürlüğü / kanal eşleme
-Dosya adları `_512` → 512×512. specular kanalının roughness'a inversiyonu gerekebilir
-(specular workflow vs PBR roughness). İlk çıktıda görsel kontrolle ayarlanacak.
+## 5. Texture resolution / channel mapping
+File names `_512` → 512×512. The specular channel may need to be inverted into roughness
+(specular workflow vs PBR roughness). To be adjusted via visual inspection after the first output.
 
 ## 6. temp_lzma_*.bin
-`textures/` içindeki 5 geçici dosya silinebilir mi? (önceki ATF decode denemesi artığı)
+Can the 5 temporary files in `textures/` be deleted? (leftover from a previous ATF decode attempt)

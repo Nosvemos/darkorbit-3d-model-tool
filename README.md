@@ -1,88 +1,196 @@
 # DarkOrbit 3D Model Tool
 
-Automated pipeline that converts DarkOrbit game assets — Away3D `.awd` meshes and
-Adobe `.atf` textures — into modern 3D formats (`.glb` / `.gltf` / `.obj`) ready for
-use in current 3D applications.
+Convert DarkOrbit game assets — Away3D `.awd` meshes and Adobe `.atf` textures —
+into modern 3D formats (`.glb` / `.gltf` / `.obj`) and render turntable sprite
+sequences, fully automated from the command line.
 
-The goal is to replace a manual, GUI-driven workflow (ATF2PNG → Prefab3D → Blender)
-with a single repeatable command, while **preserving auxiliary scene nodes**
-(`engine_*`, `laserpoint_*`) as reference points for later rendering and animation.
+It replaces a manual, GUI-driven workflow (ATF2PNG → Prefab3D → Blender) with a
+single repeatable pipeline, while **preserving auxiliary scene nodes**
+(`engine_*`, `laserpoint_*`, `light_position`) as reference points for later
+rendering and animation.
 
-## Pipeline
+---
 
-```
-.awd  ──parse──▶ geometry + node tree (main, engine_*, laserpoint_*) + material refs
-.atf  ──decode─▶ .png (diffuse / normal / specular / glow)
-                          │
-                          ▼
-          Blender (headless): build scene, wire PBR material nodes,
-          convert engine_/laserpoint_ to Empties, export
-                          │
-                          ▼
-                  .glb (primary) / .gltf / .obj
-```
+## Features
 
-## Key facts
+- **ATF → PNG** — pure-Python decoder for ATF (format 2 / DXT1): LZMA colour
+  indices + JPEG-XR endpoints decoded straight to RGBA.
+- **AWD → mesh** — pure-Python AWD2 parser: geometry, scene-graph instances with
+  names and transforms, materials, and animation-clip names.
+- **glb / gltf / obj export** — built in Blender headless, with PBR materials
+  wired from the diffuse / normal / specular / glow channels.
+- **Reference points preserved** — `engine_*` / `laserpoint_*` / `light_position`
+  nodes are exported as Empties parented to the main body.
+- **Turntable sprite renderer** — headless, reproducible lighting, any frame
+  count, with per-frame screen coordinates of the reference points.
+- **Batch** — convert or render the whole asset set with one command.
 
-- **AWD** — `AWDc` magic, 12-byte header + zlib-compressed body (AWD2 block list inside).
-- **ATF** — GPU texture container (DXT + LZMA), decoded by a pure-Python decoder.
-- **Output** — `.glb` is primary (single file, embedded textures, preserves node
-  hierarchy and empties). `.gltf` / `.obj` are optional.
-- **Blender** — headless export via Blender 5.x.
+---
 
 ## Requirements
 
-- Python 3.14+ with [Pillow](https://python-pillow.org/)
-- Blender 5.x (for the scene-build / export stage)
+| Dependency | Version | Used by |
+|------------|---------|---------|
+| Python     | 3.10+   | pipeline, decoders |
+| Pillow     | ≥ 10    | PNG I/O, sprite cropping |
+| NumPy      | ≥ 1.26  | DXT1 decode |
+| imagecodecs| ≥ 2024.1| JPEG-XR decode |
+| Blender    | 5.x     | scene build, glTF/obj export, rendering |
 
-## Documentation
+```bash
+pip install -r requirements.txt
+```
 
-Full plan and format research live in [`docs/`](docs/):
+Set the Blender executable via the `BLENDER` environment variable if it is not at
+the default Steam path (see [`src/config.py`](src/config.py)).
 
-| Doc | Contents |
-|-----|----------|
-| [`00_overview.md`](docs/00_overview.md) | Goals, manual vs. automated workflow |
-| [`01_formats.md`](docs/01_formats.md) | AWD & ATF binary format findings |
-| [`02_architecture.md`](docs/02_architecture.md) | Pipeline architecture & technical decisions |
-| [`03_roadmap.md`](docs/03_roadmap.md) | Phased implementation plan |
-| [`04_blender_scripts.md`](docs/04_blender_scripts.md) | Review of existing Blender scripts |
-| [`05_open_questions.md`](docs/05_open_questions.md) | Resolved decisions & remaining questions |
+---
 
 ## Usage
 
-```bash
-# Convert a mesh (or --all) to glb (+ optional gltf/obj)
-python -m src.pipeline sibelon --gltf --obj
-python -m src.pipeline --all
+### Conversion — `python -m src.pipeline`
 
-# Render a turntable sprite sequence + reference-point coordinates
-python -m src.render sibelon --frames 32
-python -m src.render sibelon --resolution 1024 --samples 128 --hdri city.exr
+```bash
+python -m src.pipeline sibelon              # one mesh -> out/sibelon/model/sibelon.glb
+python -m src.pipeline sibelon --gltf --obj # also emit gltf and obj
+python -m src.pipeline --all                # every mesh in meshes/
+```
+
+| Argument | Description |
+|----------|-------------|
+| `mesh` | Mesh name without extension (e.g. `sibelon`). Omit when using `--all`. |
+| `--all` | Convert every `.awd` in `meshes/`. |
+| `--gltf` | Also export `.gltf` (separate) into `model/gltf/`. |
+| `--obj` | Also export `.obj` (+ `.mtl`) into `model/obj/`. |
+| `--no-blender` | Only decode textures and emit the scene JSON; skip Blender. |
+
+### Rendering — `python -m src.render`
+
+```bash
+python -m src.render sibelon                       # 72-frame turntable, 256 px
+python -m src.render sibelon --frames 32           # any count -> full 360° turntable
+python -m src.render sibelon --resolution 1024 --samples 128 --persp
+python -m src.render sibelon --hdri city.exr --elevation 60 --azimuth 30
 python -m src.render --all
 ```
 
-Output is grouped per mesh:
+If the `.glb` does not exist yet, the renderer builds it first.
+
+**Turntable**
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--frames N` | 72 | Frame count. |
+| `--total-degrees D` | 360 | Total sweep; per-frame step = `D / frames`. |
+| `--deg-per-frame D` | — | Explicit step, overrides `total-degrees / frames`. |
+| `--start-angle D` | 90 | Turntable rotation at frame 1 (front faces screen-right). |
+| `--frame-start N` | 1 | First frame number in filenames (`<mesh>_1.png`). |
+
+**Output / quality**
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--resolution PX` | 256 | Square render resolution. |
+| `--samples N` | 96 | EEVEE render samples. |
+| `--engine NAME` | `BLENDER_EEVEE` | Render engine. |
+| `--view-transform NAME` | `Standard` | Colour management (`Standard` / `AgX` / `Filmic`). |
+| `--no-crop` | off | Disable the global stable crop. |
+| `--no-transparent` | off | Render on an opaque background. |
+| `--origin MODE` | `TOP_LEFT` | Coordinate origin (`TOP_LEFT` / `BOTTOM_LEFT`). |
+
+**Camera / lighting**
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--hdri FILE` | `studio.exr` | Bundled world HDRI (see below). |
+| `--world-strength F` | 0.8 | World/HDRI strength. |
+| `--sun-energy F` | 1.5 | Sun lamp energy. |
+| `--emission F` | 0.6 | Glow/emission map multiplier. |
+| `--elevation D` | 55 | Camera elevation above the horizon. |
+| `--azimuth D` | -90 | Camera azimuth around Z. |
+| `--persp` | ortho | Use a perspective camera instead of orthographic. |
+| `--margin F` | 1.15 | Framing padding factor (> 1 zooms out). |
+
+Bundled HDRIs: `studio` · `city` · `courtyard` · `forest` · `interior` · `night`
+· `sunrise` · `sunset`.
+
+All defaults live in `RENDER_DEFAULTS` in [`src/config.py`](src/config.py).
+
+---
+
+## Output structure
 
 ```
 out/<mesh>/
-  model/    <mesh>.glb, textures/, gltf/, obj/
-  sprites/  <mesh>_1.png … <mesh>_N.png, <mesh>_Coords.json
-  work/     intermediates
+  model/
+    <mesh>.glb              # primary, self-contained (textures embedded)
+    textures/               # decoded source PNGs (diffuse/normal/specular/glow)
+    gltf/  <mesh>.gltf + .bin + textures
+    obj/   <mesh>.obj + .mtl
+  sprites/
+    <mesh>_1.png … <mesh>_N.png
+    <mesh>_Coords.json      # per-frame reference-point screen positions
+  work/                     # intermediates (scene / config / meta JSON)
 ```
 
-`<mesh>_Coords.json` is a flat `{point_name: [[x, y] | "OFF", ...]}` map of the
-per-frame screen positions of the `engine_*` / `laserpoint_*` points.
+`<mesh>_Coords.json` is a flat map of the per-frame screen positions of the
+`engine_*` / `laserpoint_*` points:
 
-Render is fully configurable via CLI flags (frame count, resolution, samples,
-camera elevation/azimuth, HDRI, lighting, view transform, …) or
-`config.RENDER_DEFAULTS`. Frame step is derived from `total_degrees / frames`,
-so any frame count produces a full turntable.
+```json
+{
+    "engine_0": [[19, 107], [20, 113], "OFF", ...],
+    "laserpoint_leftFrontOuter": [[168, 119], ...]
+}
+```
 
-## Status
+`"OFF"` marks a frame where the point is off-screen. Coordinates are relative to
+the cropped sprite.
 
-✅ Working end to end: all 11 meshes convert to glb and render turntable sprites.
-ATF decoder, AWD parser, Blender scene builder, batch pipeline, and headless
-sprite renderer are implemented and verified. See [`docs/`](docs/) for details.
+---
+
+## How it works
+
+```
+.awd ──▶ AWD2 parser ──▶ geometry + named nodes + transforms ─┐
+                                                              ├─▶ scene JSON ──▶ Blender ──▶ glb/gltf/obj
+.atf ──▶ ATF decoder ──▶ PNG (diffuse/normal/specular/glow) ──┘                    │
+                                                                                   └──▶ turntable render ──▶ sprites + Coords.json
+```
+
+System-side Python (NumPy / imagecodecs) handles decoding and parsing; Blender
+runs headless with only `bpy` + the standard library. The two sides communicate
+through JSON, so neither depends on the other's libraries.
+
+---
+
+## Project layout
+
+```
+src/
+  atf/           ATF texture decoder
+  awd/           AWD2 mesh parser + scene model
+  blender/       headless scene builder + sprite renderer (run inside Blender)
+  config.py      paths + render defaults
+  pipeline.py    conversion orchestrator
+  render.py      render orchestrator
+tools/           standalone inspection/preview helpers
+docs/            format research, architecture, roadmap
+```
+
+---
+
+## Documentation
+
+| Doc | Contents |
+|-----|----------|
+| [`docs/00_overview.md`](docs/00_overview.md) | Goals, manual vs. automated workflow |
+| [`docs/01_formats.md`](docs/01_formats.md) | AWD & ATF binary format findings |
+| [`docs/02_architecture.md`](docs/02_architecture.md) | Pipeline architecture & decisions |
+| [`docs/03_roadmap.md`](docs/03_roadmap.md) | Phased implementation status |
+| [`docs/04_blender_scripts.md`](docs/04_blender_scripts.md) | Notes on the original Blender scripts |
+| [`docs/05_open_questions.md`](docs/05_open_questions.md) | Resolved decisions & open questions |
+
+---
 
 ## License
 
@@ -90,5 +198,5 @@ sprite renderer are implemented and verified. See [`docs/`](docs/) for details.
 
 ## Disclaimer
 
-This tool is for educational and personal use. Game assets (`meshes/`, `textures/`)
-are property of their respective owners and are **not** included in this repository.
+For educational and personal use. Game assets (`meshes/`, `textures/`) are the
+property of their respective owners and are **not** included in this repository.

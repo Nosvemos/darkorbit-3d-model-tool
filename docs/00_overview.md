@@ -1,49 +1,48 @@
-# DarkOrbit 3D Model Tool — Genel Bakış
+# DarkOrbit 3D Model Tool — Overview
 
-## Amaç
-DarkOrbit oyun varlıklarını (`.awd` mesh + `.atf` texture) **otomatik** olarak modern 3D
-formatlarına (`.obj` / `.gltf` / `.glb`) dönüştürmek. Mevcut elle yapılan iş akışını
-tamamen scriptleştirmek.
+## Purpose
+**Automatically** convert DarkOrbit game assets (`.awd` mesh + `.atf` texture) into modern 3D
+formats (`.obj` / `.gltf` / `.glb`). Fully scriptify the existing manual workflow.
 
-## Girdi Varlıkları
-- `meshes/*.awd` — Away3D AWD2 sahne dosyaları (zlib sıkıştırılmış gövde).
-  Her dosya bir ana mesh (`main`) + yardımcı noktalar (`engine_*`, `laserpoint_*`) içerir.
-- `textures/*.atf` — Adobe Texture Format (GPU texture konteyneri).
-  Mesh başına genelde 4 kanal: `diffuse`, `glow`, `normal`, `specular` (bazen eksik).
+## Input Assets
+- `meshes/*.awd` — Away3D AWD2 scene files (zlib-compressed body).
+  Each file contains one main mesh (`main`) + helper points (`engine_*`, `laserpoint_*`).
+- `textures/*.atf` — Adobe Texture Format (GPU texture container).
+  Usually 4 channels per mesh: `diffuse`, `glow`, `normal`, `specular` (sometimes missing).
 
-Mevcut mesh listesi (11): cubikon, devolarium, kristallin, kristallon, lordakia,
+Current mesh list (11): cubikon, devolarium, kristallin, kristallon, lordakia,
 lordakium, mordon, protegit, saimon, sibelon, sibelonit.
 
-## Mevcut Elle İş Akışı (otomatikleştirilecek)
-1. **ATF2PNG** ile `.atf` → `.png`.
-2. **Prefab3D** ile `.awd` aç → `.obj` export.
-3. **Blender**: `.obj` import, Shading sekmesinde texture node'larını elle bağla.
-4. Blender'dan export.
+## Current Manual Workflow (to be automated)
+1. **ATF2PNG** for `.atf` → `.png`.
+2. **Prefab3D** to open `.awd` → `.obj` export.
+3. **Blender**: import `.obj`, manually connect texture nodes in the Shading tab.
+4. Export from Blender.
 
-## Hedef Otomatik İş Akışı
+## Target Automated Workflow
 ```
-.awd  ──parse──▶ geometri + node ağacı (main, engine_*, laserpoint_*) + material refs
+.awd  ──parse──▶ geometry + node tree (main, engine_*, laserpoint_*) + material refs
 .atf  ──decode─▶ .png (diffuse/normal/specular/glow)
                           │
                           ▼
-              Blender (headless) ile sahne kur:
-              - material node'ları otomatik bağla (PBR)
-              - engine_/laserpoint_ → Empty (PLAIN_AXES) referans noktaları
+              Build the scene with Blender (headless):
+              - automatically connect material nodes (PBR)
+              - engine_/laserpoint_ → Empty (PLAIN_AXES) reference points
                           │
                           ▼
               export: .glb / .gltf / .obj
 ```
 
-## Kritik Gereksinimler
-- **Yardımcı noktalar kaybolmamalı**: `engine_*` ve `laserpoint_*` referans noktaları
-  korunmalı (ileride kullanılacak — render koordinat çıkarımı, animasyon).
-- **Texture'lar doğru bağlanmalı**: diffuse→base color, normal→normal map,
+## Critical Requirements
+- **Helper points must not be lost**: `engine_*` and `laserpoint_*` reference points
+  must be preserved (to be used later — render coordinate extraction, animation).
+- **Textures must be connected correctly**: diffuse→base color, normal→normal map,
   specular→specular/roughness, glow→emission.
-- **Toplu çalışmalı**: tüm `meshes/` klasörü tek komutla işlenebilmeli.
+- **Must work in bulk**: the entire `meshes/` folder should be processable with a single command.
 
-## Doküman Haritası
-- `01_formats.md` — AWD ve ATF binary format bulguları.
-- `02_architecture.md` — pipeline mimarisi, modüller, teknik kararlar.
-- `03_roadmap.md` — fazlara bölünmüş görev planı.
-- `04_blender_scripts.md` — mevcut 3 blender scriptinin incelemesi.
-- `05_open_questions.md` — netleştirilmesi gereken kararlar.
+## Document Map
+- `01_formats.md` — AWD and ATF binary format findings.
+- `02_architecture.md` — pipeline architecture, modules, technical decisions.
+- `03_roadmap.md` — task plan broken down into phases.
+- `04_blender_scripts.md` — review of the existing 3 blender scripts.
+- `05_open_questions.md` — decisions that need to be clarified.

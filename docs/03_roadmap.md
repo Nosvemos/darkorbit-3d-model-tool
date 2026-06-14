@@ -1,96 +1,96 @@
-# Yol Haritası (Fazlar)
+# Roadmap (Phases)
 
-İlke: her faz tek başına doğrulanabilir çıktı üretir. Önce 1 mesh (cubikon) üzerinde
-uçtan uca çalıştır, sonra toplu işle.
+Principle: each phase produces an independently verifiable output. First run end-to-end
+on a single mesh (cubikon), then process in batch.
 
-## Faz 0 — Proje iskeleti
-- [ ] `src/` paket yapısı, `config.py`, `requirements.txt`.
-- [ ] Blender exe yolu tespiti/ayarı.
+## Phase 0 — Project skeleton
+- [ ] `src/` package structure, `config.py`, `requirements.txt`.
+- [ ] Blender exe path detection/configuration.
 
-## Faz 1 — ATF decoder ✅
-- [x] ATF header parse (yeni-versiyon offset 12; format/genişlik/yükseklik/mip).
-- [x] Blok yapısı çözüldü: format 2 = DXT1, 2 blok (UI32-BE uzunluk önekli).
-- [x] LZMA blok decompress (raw LZMA, stdlib `lzma` FORMAT_RAW) → DXT1 index'leri.
-- [x] JPEG-XR blok decode (`imagecodecs`) → DXT1 endpoint plane'leri (RGB888, lossy).
-- [x] DXT1 → RGBA decode (numpy vektörize; RGB565 round-trip atlandı, daha iyi kalite).
-- [x] PNG yazımı.
-- [x] **Doğrulama**: 44/44 texture decode; diffuse/normal/glow/specular görsel kontrol
-      doğru (normal map mavi, glow siyah-üstü-emissive). `src/atf/`, `tools/dump_atf.py`.
-      Not: eski referans PNG silinmişti → görsel doğrulama yapıldı.
+## Phase 1 — ATF decoder ✅
+- [x] ATF header parse (new-version offset 12; format/width/height/mip).
+- [x] Block structure resolved: format 2 = DXT1, 2 blocks (UI32-BE length-prefixed).
+- [x] LZMA block decompress (raw LZMA, stdlib `lzma` FORMAT_RAW) → DXT1 indices.
+- [x] JPEG-XR block decode (`imagecodecs`) → DXT1 endpoint planes (RGB888, lossy).
+- [x] DXT1 → RGBA decode (numpy vectorized; RGB565 round-trip skipped, better quality).
+- [x] PNG writing.
+- [x] **Verification**: 44/44 textures decoded; diffuse/normal/glow/specular visual check
+      correct (normal map blue, glow black-on-emissive). `src/atf/`, `tools/dump_atf.py`.
+      Note: the old reference PNG had been deleted → visual verification was done.
 
-## Faz 2 — AWD parser ✅
-- [x] Header + zlib decompress — `AWDc` ve standart `AWD\x02` varyantları (offset 12).
-- [x] AWD2 blok iterator (id/ns/type/flags/len, little-endian).
-- [x] Geometri blokları (type 1) → vertex/index/uv stream'leri (ftype 5=u16, 7=f32).
-- [x] Mesh instance blokları (type 23) → node adı + 3x4 transform + geom/material ref.
-- [x] Material blokları (type 81) → ad + flag props. Texture isim konvansiyonuyla.
-- [x] Animasyon klip adları (type 112) → `open`/`close`/`idle`.
-- [x] Dayanıklılık: f64-matrix varyantı + instance'sız orphan geometri → synthetic
-      instance; `null~<name>` materyalden ad kurtarma (protegit engine_0).
-- [x] **Doğrulama**: 11 mesh'in tamamı parse oldu; `engine_*`/`laserpoint_*` noktaları,
-      vertex/üçgen sayıları doğru. `src/awd/`, `tools/dump_awd.py`.
+## Phase 2 — AWD parser ✅
+- [x] Header + zlib decompress — `AWDc` and standard `AWD\x02` variants (offset 12).
+- [x] AWD2 block iterator (id/ns/type/flags/len, little-endian).
+- [x] Geometry blocks (type 1) → vertex/index/uv streams (ftype 5=u16, 7=f32).
+- [x] Mesh instance blocks (type 23) → node name + 3x4 transform + geom/material ref.
+- [x] Material blocks (type 81) → name + flag props. With texture naming convention.
+- [x] Animation clip names (type 112) → `open`/`close`/`idle`.
+- [x] Robustness: f64-matrix variant + orphan geometry without an instance → synthetic
+      instance; name recovery from `null~<name>` material (protegit engine_0).
+- [x] **Verification**: all 11 meshes parsed; `engine_*`/`laserpoint_*` points,
+      vertex/triangle counts correct. `src/awd/`, `tools/dump_awd.py`.
 
-## Faz 3 — Blender sahne kurucu (headless) ✅
-- [x] Ara modelden (JSON) mesh oluştur (verts/faces/uv); local geom + `matrix_world`.
+## Phase 3 — Blender scene builder (headless) ✅
+- [x] Build mesh from intermediate model (JSON) (verts/faces/uv); local geom + `matrix_world`.
 - [x] Material node graph: diffuse→Base Color, normal→Normal Map, specular→Specular,
-      glow→Emission. Eksik kanal atlanır.
-- [x] `engine_/laserpoint_/light_position` → Empty (PLAIN_AXES) median origin'de,
-      ana body'ye parent (`mesh_to_plain_axes.py` mantığı).
-- [x] Export: `.glb` (varsayılan, texture gömülü) + opsiyonel `.gltf` / `.obj`.
-- [x] Away3D Y-up → Blender Z-up eksen dönüşümü (+90° X).
-- [x] **Doğrulama**: cubikon (küp), sibelon/devolarium/protegit (gemi), kristallon
-      (kristal) doğru render; texture'lar bağlı; glb'de empties node olarak korunuyor.
+      glow→Emission. Missing channels are skipped.
+- [x] `engine_/laserpoint_/light_position` → Empty (PLAIN_AXES) at the median origin,
+      parented to the main body (`mesh_to_plain_axes.py` logic).
+- [x] Export: `.glb` (default, embedded textures) + optional `.gltf` / `.obj`.
+- [x] Away3D Y-up → Blender Z-up axis conversion (+90° X).
+- [x] **Verification**: cubikon (cube), sibelon/devolarium/protegit (ship), kristallon
+      (crystal) render correctly; textures are bound; empties are preserved as nodes in the glb.
       `src/blender/build_scene.py`, `tools/preview_glb.py`.
 
-## Faz 4 — Orkestrasyon & batch ✅
+## Phase 4 — Orchestration & batch ✅
 - [x] `python -m src.pipeline <mesh>|--all [--gltf --obj --no-blender]`.
-- [x] ATF decode → PNG, AWD parse → JSON intermediate, Blender headless çağrısı.
-- [x] Eksik texture kanalına dayanıklılık (sadece var olan kanallar bağlanır).
-- [x] **Doğrulama**: 11 mesh'in tamamı tek komutla glb'ye dönüştü (`out/<mesh>/`).
-      Mimari: sistem-Python (numpy/imagecodecs) ↔ Blender (sadece bpy+stdlib) ayrık.
+- [x] ATF decode → PNG, AWD parse → JSON intermediate, headless Blender invocation.
+- [x] Robustness to missing texture channels (only existing channels are bound).
+- [x] **Verification**: all 11 meshes converted to glb with a single command (`out/<mesh>/`).
+      Architecture: system-Python (numpy/imagecodecs) ↔ Blender (bpy+stdlib only) kept separate.
 
-## Faz 5 — Render scriptleri entegrasyonu ✅
-Eski 3 script (viewport-bağımlı, hardcode, eski API) yerine headless render modülü.
+## Phase 5 — Render scripts integration ✅
+A headless render module replacing the old 3 scripts (viewport-dependent, hardcoded, legacy API).
 - [x] `src/blender/render_sprites.py` (Blender 5.x, headless): glb import → world
-      HDRI + sun lighting → framing kamera (ortho/persp) → turntable Z rotation →
-      transparent RGBA frame render → `engine_/laserpoint_` empty'lerinin ekran
-      koordinatlarını topla → ham JSON.
+      HDRI + sun lighting → framing camera (ortho/persp) → turntable Z rotation →
+      transparent RGBA frame render → collect the screen coordinates of the
+      `engine_/laserpoint_` empties → raw JSON.
 - [x] `src/render.py` (orchestrator): config (defaults+CLI override) → Blender →
-      PIL ile stable crop + koordinat origin ayarı → `<mesh>_Coords.json`.
-- [x] Tüm hardcode değerler parametrize (`config.RENDER_DEFAULTS` + CLI):
-      frames, çözünürlük, samples, HDRI, kamera açısı (elevation/azimuth/ortho/fov/
+      stable crop with PIL + coordinate origin adjustment → `<mesh>_Coords.json`.
+- [x] All hardcoded values parametrized (`config.RENDER_DEFAULTS` + CLI):
+      frames, resolution, samples, HDRI, camera angle (elevation/azimuth/ortho/fov/
       margin), sun, coord origin, crop padding.
-- [x] `mesh_to_plain_axes.py` mantığı zaten Faz 3'te pipeline'a entegre (empties).
-- [x] **Doğrulama**: sibelon 512px turntable; 5 nokta her frame doğru izlendi
-      (overlay ile kontrol: laserpoint ön, engine arka nozül, light üst); stable crop
-      çalışıyor. Lighting headless reproducible (material-preview bağımlılığı kaldırıldı).
+- [x] `mesh_to_plain_axes.py` logic already integrated into the pipeline in Phase 3 (empties).
+- [x] **Verification**: sibelon 512px turntable; all 5 points tracked correctly every frame
+      (checked with overlay: laserpoint front, engine rear nozzle, light top); stable crop
+      works. Lighting is headless reproducible (material-preview dependency removed).
 
-## Render kullanımı
+## Render usage
 ```
-python -m src.render sibelon                       # varsayılan turntable (72f, 256px, ortho)
-python -m src.render sibelon --frames 32           # 32 frame = otomatik 360/32° adım (tam tur)
+python -m src.render sibelon                       # default turntable (72f, 256px, ortho)
+python -m src.render sibelon --frames 32           # 32 frames = automatic 360/32° step (full turn)
 python -m src.render sibelon --resolution 1024 --samples 128 --persp
 python -m src.render sibelon --hdri city.exr --elevation 60 --azimuth 30 --margin 1.3
 python -m src.render sibelon --deg-per-frame 5 --start-angle 90 --emission 0.4
 python -m src.render --all
 ```
-Frame sayısı serbest; `total_degrees / frames` ile adım otomatik (eksik/fazla tur olmaz).
+Frame count is free; the step is automatic via `total_degrees / frames` (no missing/extra turn).
 HDRI: studio / city / courtyard / forest / interior / night / sunrise / sunset.
-CLI grupları: turntable (frames/total-degrees/deg-per-frame/start-angle/frame-start),
+CLI groups: turntable (frames/total-degrees/deg-per-frame/start-angle/frame-start),
 output-quality (resolution/samples/engine/view-transform/no-crop/no-transparent/origin),
 camera-lighting (hdri/world-strength/sun-energy/emission/elevation/azimuth/persp/margin).
 
-## Çıktı yapısı (gruplu, profesyonel)
+## Output structure (grouped, professional)
 ```
 out/<mesh>/
   model/
-    <mesh>.glb               # birincil, self-contained (texture gömülü)
-    textures/                # decode edilmiş kaynak PNG'ler
+    <mesh>.glb               # primary, self-contained (embedded textures)
+    textures/                # decoded source PNGs
     gltf/  <mesh>.gltf + .bin + textures
     obj/   <mesh>.obj + .mtl
   sprites/
-    <mesh>_1.png ... <mesh>_N.png   # 1-based isimlendirme
-    <mesh>_Coords.json              # düz {point: [[x,y]|"OFF",...]}, sadece engine_/laserpoint_
-  work/                       # ara dosyalar (scene/cfg/meta json)
+    <mesh>_1.png ... <mesh>_N.png   # 1-based naming
+    <mesh>_Coords.json              # flat {point: [[x,y]|"OFF",...]}, engine_/laserpoint_ only
+  work/                       # intermediate files (scene/cfg/meta json)
 ```
-Kalite: EEVEE samples 96, **Standard view transform** (texture renkleri doğru, AgX/Filmic değil).
+Quality: EEVEE samples 96, **Standard view transform** (correct texture colors, not AgX/Filmic).
