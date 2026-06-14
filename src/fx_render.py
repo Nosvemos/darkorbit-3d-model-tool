@@ -40,6 +40,25 @@ def ensure_awp(name: str) -> str:
     raise SystemExit(f"awp not found for '{name}' (looked in fx/awp/ and fx/{name}.zip)")
 
 
+def extract_all() -> tuple[int, int]:
+    """Unpack every fx/*.zip into fx/awp/. Returns (extracted, archives)."""
+    awp_dir = os.path.join(config.FX_DIR, "awp")
+    os.makedirs(awp_dir, exist_ok=True)
+    zips = sorted(glob.glob(os.path.join(config.FX_DIR, "*.zip")))
+    n = 0
+    for zp in zips:
+        try:
+            with zipfile.ZipFile(zp) as zf:
+                for m in zf.namelist():
+                    if m.lower().endswith(".awp"):
+                        with open(os.path.join(awp_dir, os.path.basename(m)), "wb") as f:
+                            f.write(zf.read(m))
+                        n += 1
+        except zipfile.BadZipFile:
+            pass
+    return n, len(zips)
+
+
 def render(name: str, frames: int, resolution: int, margin: float) -> str:
     effect = awp_mod.load(ensure_awp(name))
     out_dir = os.path.join(config.OUT_DIR, "fx", name, "sprites")

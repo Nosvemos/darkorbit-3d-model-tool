@@ -125,12 +125,22 @@ def render(mesh_name: str, overrides: dict, fx: bool = False) -> str:
     return sprites
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Turntable sprite renderer")
-    ap.add_argument("mesh", nargs="?")
-    ap.add_argument("--all", action="store_true")
-    ap.add_argument("--fx", action="store_true",
-                    help="render fx_*.awd meshes from fx/ (output under out/fx/)")
+# CLI flag name -> RENDER_DEFAULTS key (only flags the user set are applied)
+_FLAG_TO_KEY = {
+    "mode": "mode",
+    "frames": "frames", "total_degrees": "total_degrees",
+    "deg_per_frame": "deg_per_frame", "start_angle": "start_angle",
+    "frame_start": "frame_start", "resolution": "resolution",
+    "samples": "samples", "engine": "engine", "view_transform": "view_transform",
+    "origin": "coord_origin", "hdri": "world_hdri",
+    "world_strength": "world_strength", "sun_energy": "sun_energy",
+    "emission": "emission_strength", "elevation": "cam_elevation",
+    "azimuth": "cam_azimuth", "margin": "cam_margin",
+}
+
+
+def add_render_args(ap):
+    """Attach the render flags to a parser (shared by `render` and the CLI)."""
     ap.add_argument("--mode", choices=["auto", "ship", "item"],
                     help="ship: track points + Coords.json; item: plain render, "
                          "no points; auto: ship if points exist (default)")
@@ -164,29 +174,34 @@ def main():
     g.add_argument("--azimuth", type=float)
     g.add_argument("--persp", action="store_true", help="perspective (default ortho)")
     g.add_argument("--margin", type=float, help="frame padding factor (>1 zooms out)")
-    args = ap.parse_args()
 
-    # map CLI flags -> RENDER_DEFAULTS keys (only those the user actually set)
-    flag_to_key = {
-        "mode": "mode",
-        "frames": "frames", "total_degrees": "total_degrees",
-        "deg_per_frame": "deg_per_frame", "start_angle": "start_angle",
-        "frame_start": "frame_start", "resolution": "resolution",
-        "samples": "samples", "engine": "engine", "view_transform": "view_transform",
-        "origin": "coord_origin", "hdri": "world_hdri",
-        "world_strength": "world_strength", "sun_energy": "sun_energy",
-        "emission": "emission_strength", "elevation": "cam_elevation",
-        "azimuth": "cam_azimuth", "margin": "cam_margin",
-    }
+
+def overrides_from_args(args) -> dict:
+    """Build a RENDER_DEFAULTS override dict from parsed args."""
     ov: dict = {}
-    for flag, key in flag_to_key.items():
-        val = getattr(args, flag)
+    for flag, key in _FLAG_TO_KEY.items():
+        val = getattr(args, flag, None)
         if val is not None:
             ov[key] = val
-    if args.persp: ov["cam_ortho"] = False
-    if args.no_crop: ov["stable_crop"] = False
-    if args.no_transparent: ov["film_transparent"] = False
+    if getattr(args, "persp", False):
+        ov["cam_ortho"] = False
+    if getattr(args, "no_crop", False):
+        ov["stable_crop"] = False
+    if getattr(args, "no_transparent", False):
+        ov["film_transparent"] = False
+    return ov
 
+
+def main():
+    ap = argparse.ArgumentParser(description="Turntable sprite renderer")
+    ap.add_argument("mesh", nargs="?")
+    ap.add_argument("--all", action="store_true")
+    ap.add_argument("--fx", action="store_true",
+                    help="render fx_*.awd meshes from fx/ (output under out/fx/)")
+    add_render_args(ap)
+    args = ap.parse_args()
+
+    ov = overrides_from_args(args)
     src_dir = config.FX_DIR if args.fx else config.MESHES_DIR
     if args.all:
         names = [os.path.splitext(os.path.basename(p))[0]

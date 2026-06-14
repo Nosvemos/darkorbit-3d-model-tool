@@ -38,7 +38,8 @@ rendering and animation.
 | Blender    | 5.x     | scene build, glTF/obj export, rendering |
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt     # runtime deps
+pip install -e .                    # optional: installs the `do3d` command
 ```
 
 Set the Blender executable via the `BLENDER` environment variable if it is not at
@@ -48,7 +49,31 @@ the default Steam path (see [`src/config.py`](src/config.py)).
 
 ## Usage
 
-### Conversion — `python -m src.pipeline`
+Everything is available through a single command — `do3d` (after
+`pip install -e .`) or equivalently `python -m src`:
+
+```
+do3d convert <mesh> [--all] [--fx] [--gltf] [--obj] [--no-blender]
+do3d render  <mesh> [--all] [--fx] [--mode auto|ship|item] [render options]
+do3d fx      <name>  [--all] [--frames N] [--resolution PX] [--margin F]
+do3d extract-awp
+do3d list    [meshes|fx|effects|textures|all]
+do3d info    <mesh> [--fx]
+```
+
+```bash
+do3d list meshes                 # what can I convert?
+do3d info sibelon                # objects, reference points, clips, textures
+do3d convert sibelon --gltf --obj
+do3d render sibelon --frames 32
+do3d fx explosion0
+```
+
+The individual modules (`python -m src.pipeline`, `python -m src.render`,
+`python -m src.fx_render`) remain available and take the same options as the
+matching subcommand. The detailed option tables below apply to both forms.
+
+### Conversion — `do3d convert` / `python -m src.pipeline`
 
 ```bash
 python -m src.pipeline sibelon              # one mesh -> out/sibelon/model/sibelon.glb
@@ -69,7 +94,7 @@ Texture lookup prefers the highest resolution available
 (`<mesh>_<channel>_512/256/128.atf`) and falls back to a single `<mesh>.atf`
 bound as the base colour (used by `fx/` meshes, which have no channel naming).
 
-### Rendering — `python -m src.render`
+### Rendering — `do3d render` / `python -m src.render`
 
 ```bash
 python -m src.render sibelon                       # 72-frame turntable, 256 px
@@ -181,12 +206,16 @@ through JSON, so neither depends on the other's libraries.
 
 ```
 src/
-  atf/           ATF texture decoder
+  cli.py         unified CLI (do3d / python -m src)
+  __main__.py    `python -m src` entry point
+  atf/           ATF texture decoder (DXT1 + DXT5)
   awd/           AWD2 mesh parser + scene model
   blender/       headless scene builder + sprite renderer (run inside Blender)
+  fx/            .awp particle parser + 2D billboard renderer
   config.py      paths + render defaults
   pipeline.py    conversion orchestrator
-  render.py      render orchestrator
+  render.py      mesh turntable render orchestrator
+  fx_render.py   particle-effect render orchestrator
 tools/           standalone inspection/preview helpers
 docs/            format research, architecture, roadmap
 ```

@@ -36,3 +36,5 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+commitmsg.tmp
