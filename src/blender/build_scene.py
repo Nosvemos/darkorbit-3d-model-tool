@@ -114,7 +114,8 @@ def load_image(path, non_color=False):
 
 def build_material(name, textures):
     mat = bpy.data.materials.new(name)
-    mat.use_nodes = True
+    if mat.node_tree is None:             # use_nodes deprecated in Blender 6.0
+        mat.use_nodes = True
     nt = mat.node_tree
     nt.nodes.clear()
     out = nt.nodes.new("ShaderNodeOutputMaterial")

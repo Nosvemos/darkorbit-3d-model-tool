@@ -69,7 +69,8 @@ def setup_world(cfg):
     path = os.path.join(hdri_dir, cfg["world_hdri"])
     world = bpy.data.worlds.new("World")
     bpy.context.scene.world = world
-    world.use_nodes = True
+    if world.node_tree is None:           # use_nodes deprecated in Blender 6.0
+        world.use_nodes = True
     nt = world.node_tree
     nt.nodes.clear()
     out = nt.nodes.new("ShaderNodeOutputWorld")
@@ -175,7 +176,7 @@ def apply_emission(strength):
     if strength is None:
         return
     for mat in bpy.data.materials:
-        if not mat.use_nodes:
+        if not mat.node_tree:
             continue
         for node in mat.node_tree.nodes:
             if node.type == "BSDF_PRINCIPLED" and "Emission Strength" in node.inputs:
