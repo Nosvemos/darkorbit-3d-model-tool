@@ -90,7 +90,8 @@ def decode_textures(mesh_name: str, textures_dir: str, model_out: str,
 
 
 def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
-                     model_out: str, work: str, textures: dict | None = None) -> str:
+                     model_out: str, work: str, textures: dict | None = None,
+                     clip: str | None = None) -> str:
     """Parse the AWD and write the intermediate scene JSON. Returns its path."""
     scene = parse_file(os.path.join(meshes_dir, f"{mesh_name}.awd"))
     textures = decode_textures(mesh_name, textures_dir, model_out, overrides=textures)
@@ -109,8 +110,10 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
             uvs += sub.uvs if sub.uvs else [0.0] * (sub.vertex_count * 2)
         is_point = inst.is_point
         # vertex-animation pose frames whose target geometry is this instance's
-        # (and whose vertex count matches the merged mesh) -> morph targets
-        morphs = [fr for c in scene.clips if c.geometry_id == inst.geometry_id
+        # (and whose vertex count matches the merged mesh) -> morph targets.
+        # `clip` limits it to one named clip; otherwise all clips are concatenated.
+        morphs = [fr for c in scene.clips
+                  if c.geometry_id == inst.geometry_id and (not clip or c.name == clip)
                   for fr in c.frames if len(fr) == len(positions)]
         objects.append({
             "name": inst.name,
@@ -164,7 +167,7 @@ def run_blender(scene_json: str, out_glb: str, gltf: bool, obj: bool,
 
 def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
             run: bool = True, fx: bool = False, textures: dict | None = None,
-            progress=None) -> str:
+            clip: str | None = None, progress=None) -> str:
     meshes_dir = config.FX_DIR if fx else config.MESHES_DIR
     textures_dir = config.FX_DIR if fx else config.TEXTURES_DIR
     out_base = config.FX_OUT if fx else config.OUT_DIR
@@ -172,7 +175,7 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
     work = config.work_dir(mesh_name, out_base)
     os.makedirs(model, exist_ok=True)
     scene_json = build_scene_json(mesh_name, meshes_dir, textures_dir, model, work,
-                                  textures=textures)
+                                  textures=textures, clip=clip)
     out_glb = os.path.join(model, f"{mesh_name}.glb")
     if run:
         run_blender(scene_json, out_glb, gltf, obj, progress=progress)

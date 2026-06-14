@@ -172,6 +172,10 @@ async function select(name){
     Object.entries(i.textures||{}).forEach(([c,n])=>{
       const el = document.querySelector(`#actions .tex[data-ch="${c}"]`); if(el) el.value = n;
     });
+    // populate the clip selector (vertex animations); "all" plays every clip
+    const cl = $("#o_clip");
+    if(cl) cl.innerHTML = '<option value="">all clips</option>' +
+      (i.clips||[]).map(c=>`<option value="${c}">${c}</option>`).join("");
   }catch(e){ $("#info").innerHTML = `<span class="mut">info error: ${e.message}</span>`; }
 }
 
@@ -194,6 +198,7 @@ function renderActions(){
       ${num({label:"frames",key:"frames"},72)}
       ${num({label:"resolution",key:"resolution"},256)}
       <label>lighting<select class="opt" data-key="world_hdri">${HDRIS.map(h=>`<option value="${h}.exr">${h}</option>`).join("")}</select></label>
+      <label>clip<select id="o_clip"><option value="">all</option></select></label>
       <button class="act" id="b_render">Render Sprites</button>
     </div>
     <div style="margin-top:12px">
@@ -251,14 +256,14 @@ function busy(b){ document.querySelectorAll("#actions button").forEach(x=>x.disa
 async function runConvert(){
   busy(true); setStatus("converting… (Blender)");
   try{
-    const r = await runJob("/api/convert",{name:sel, fx:isFx(), gltf:$("#o_gltf").checked, obj:$("#o_obj").checked, textures:collectTextures()});
+    const r = await runJob("/api/convert",{name:sel, fx:isFx(), gltf:$("#o_gltf").checked, obj:$("#o_obj").checked, textures:collectTextures(), clip:($("#o_clip")||{}).value||""});
     setStatus("converted ✓"); showLinks({glb:r.glb});
   }catch(e){ setStatus("error: "+e.message); } finally{ busy(false); }
 }
 async function runRender(){
   busy(true); setStatus("rendering sprites… (Blender)");
   try{
-    const r = await runJob("/api/render", Object.assign({name:sel, fx:isFx(), textures:collectTextures()}, collectOpts()));
+    const r = await runJob("/api/render", Object.assign({name:sel, fx:isFx(), textures:collectTextures(), clip:($("#o_clip")||{}).value||""}, collectOpts()));
     const fr = (r && r.frames) || [];
     setStatus(`rendered ${fr.length} frames ✓`);
     playFrames(fr); showLinks(r || {});
@@ -304,11 +309,20 @@ document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
   $("#empty").style.display="block"; $("#detail").style.display="none";
   loadList();
 });
+let TEX_NAMES = [];
+function fillTexList(q){
+  q = (q||"").toLowerCase();
+  const m = (q ? TEX_NAMES.filter(n=>n.toLowerCase().includes(q)) : TEX_NAMES).slice(0,40);
+  $("#atflist").innerHTML = m.map(n=>`<option value="${n}">`).join("");
+}
 async function loadTextures(){
-  try{ const d = await jget("/api/textures");
-    $("#atflist").innerHTML = d.items.map(n=>`<option value="${n}">`).join(""); }
+  try{ TEX_NAMES = (await jget("/api/textures")).items; fillTexList(""); }
   catch(e){}
 }
+// keep the texture datalist short (filter as you type) so the popup stays small
+document.addEventListener("input", e=>{
+  if(e.target.classList && e.target.classList.contains("tex")) fillTexList(e.target.value);
+});
 loadList(); loadTextures();
 </script>
 </body>

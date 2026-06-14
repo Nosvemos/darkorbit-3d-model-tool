@@ -90,7 +90,8 @@ def api_convert(body, progress=None):
     fx = bool(body.get("fx"))
     glb = pipeline.convert(name, gltf=bool(body.get("gltf")),
                            obj=bool(body.get("obj")), fx=fx,
-                           textures=body.get("textures") or None, progress=progress)
+                           textures=body.get("textures") or None,
+                           clip=body.get("clip") or None, progress=progress)
     return {"ok": True, "glb": _rel_url(glb)}
 
 
@@ -100,7 +101,7 @@ def api_render(body, progress=None):
     ov = {k: v for k, v in body.items()
           if k in config.RENDER_DEFAULTS and v not in (None, "")}
     sprites = render_mod.render(name, ov, fx=fx, textures=body.get("textures") or None,
-                                progress=progress)
+                                clip=body.get("clip") or None, progress=progress)
     base = config.FX_OUT if fx else config.OUT_DIR
     coords = os.path.join(sprites, f"{name}_Coords.json")
     glb = os.path.join(config.model_dir(name, base), f"{name}.glb")

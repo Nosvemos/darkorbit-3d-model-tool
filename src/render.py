@@ -79,14 +79,15 @@ def stable_crop(out_dir: str, raw: dict, padding: int, origin: str) -> dict:
 
 
 def render(mesh_name: str, overrides: dict, fx: bool = False,
-           textures: dict | None = None, progress=None) -> str:
+           textures: dict | None = None, clip: str | None = None,
+           progress=None) -> str:
     base = config.FX_OUT if fx else config.OUT_DIR
     glb = os.path.join(config.model_dir(mesh_name, base), f"{mesh_name}.glb")
-    # rebuild the glb if it's missing or the user picked textures manually
-    if textures or not os.path.exists(glb):
+    # rebuild the glb if it's missing or the user picked textures / a clip manually
+    if textures or clip or not os.path.exists(glb):
         if progress:
             progress("building glb…")
-        convert(mesh_name, fx=fx, textures=textures, progress=progress)
+        convert(mesh_name, fx=fx, textures=textures, clip=clip, progress=progress)
 
     work = config.work_dir(mesh_name, base)
     sprites = config.sprites_dir(mesh_name, base)
