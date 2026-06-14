@@ -29,6 +29,13 @@ T_SEGCOL = "ParticleSegmentedColorNodeSubParser"
 T_INITCOL = "ParticleInitialColorNodeSubParser"
 T_ROTVEL = "ParticleRotationalVelocityNodeSubParser"
 T_ROT2HEAD = "ParticleRotateToHeadingNodeSubParser"
+T_ORBIT = "ParticleOrbitNodeSubParser"
+T_OSC = "ParticleOscillatorNodeSubParser"
+T_SHEET = "ParticleSpriteSheetNodeSubParser"
+# ParticleUVNode (texture scroll) and ParticleFollowNode (follows a static emitter)
+# have negligible effect for a single, origin-anchored playback -> treated as no-ops.
+
+TWO_PI = 2.0 * math.pi
 
 
 @dataclass
@@ -41,6 +48,11 @@ class Particle:
     scale_min: float
     scale_max: float
     rot_speed: float
+    orbit_r: float = 0.0
+    orbit_cycle: float = 0.0
+    osc: tuple = (0.0, 0.0, 0.0)
+    osc_cycle: float = 0.0
+    phase: float = 0.0
 
 
 def _scale_min_max(scale_node) -> tuple[float, float]:
@@ -59,6 +71,9 @@ def _build_particles(layer: awp.Layer, seed: int) -> list[Particle]:
     rot_speed = awp.sample1d(rot.get("rotation", {}).get("data", {}).get("w"), rng) \
         if rot else 0.0
 
+    orbit = layer.nodes.get(T_ORBIT, {}).get("orbit", {}).get("data", {})
+    osc = layer.nodes.get(T_OSC, {}).get("oscillator", {}).get("data", {})
+
     out = []
     for _ in range(max(1, layer.num)):
         start = awp.sample1d(time_d.get("startTime"), rng)
@@ -70,9 +85,39 @@ def _build_particles(layer: awp.Layer, seed: int) -> list[Particle]:
             if T_VEL in layer.nodes else (0.0, 0.0, 0.0)
         acc = awp.sample3d(layer.nodes.get(T_ACC, {}).get("acceleration"), rng) \
             if T_ACC in layer.nodes else (0.0, 0.0, 0.0)
+        # orbit: FourDCompositeWithOneD {x:radius, y:cycleDuration}
+        orbit_r = awp.sample1d(orbit.get("x"), rng) if orbit else 0.0
+        orbit_cycle = awp.sample1d(orbit.get("y"), rng) if orbit else 0.0
+        # oscillator: FourDCompositeWithThreeD {w:cycleDuration, x:amplitude vector}
+        osc_vec = awp.sample3d(osc.get("x"), rng) if osc else (0.0, 0.0, 0.0)
+        osc_cycle = awp.sample1d(osc.get("w"), rng) if osc else 0.0
         out.append(Particle(start, dur, pos, vel, acc, smin, smax,
-                            rng.choice([-1, 1]) * rot_speed))
+                            rng.choice([-1, 1]) * rot_speed,
+                            orbit_r, orbit_cycle, osc_vec, osc_cycle,
+                            rng.uniform(0, TWO_PI)))
     return out
+
+
+def _sheet(layer: awp.Layer):
+    """ParticleSpriteSheetNode grid -> (rows, cols), or None."""
+    d = layer.nodes.get(T_SHEET)
+    if not d:
+        return None
+    rows, cols = int(d.get("numRows", 1) or 1), int(d.get("numColumns", 1) or 1)
+    return (rows, cols) if rows * cols > 1 else None
+
+
+def _sheet_cell(base, sheet, life):
+    """Crop the texture atlas to the flip-book cell for this life fraction."""
+    if not sheet:
+        return None
+    rows, cols = sheet
+    total = rows * cols
+    idx = min(total - 1, int(life * total))
+    col, row = idx % cols, idx // cols
+    w, h = base.size
+    cw, ch = w // cols, h // rows
+    return base.crop((col * cw, row * ch, col * cw + cw, row * ch + ch))
 
 
 def _layer_transform(layer: awp.Layer):
@@ -97,6 +142,14 @@ def _state(p: Particle, layer, inst, t):
 
     x = inst_pos[0] + p.pos[0] + p.vel[0] * age + 0.5 * p.acc[0] * age * age
     y = inst_pos[1] + p.pos[1] + p.vel[1] * age + 0.5 * p.acc[1] * age * age
+    if p.orbit_cycle:
+        th = TWO_PI * age / p.orbit_cycle + p.phase
+        x += p.orbit_r * math.cos(th)
+        y += p.orbit_r * math.sin(th)
+    if p.osc_cycle:
+        sn = math.sin(TWO_PI * age / p.osc_cycle + p.phase)
+        x += p.osc[0] * sn
+        y += p.osc[1] * sn
     s = p.scale_min + (p.scale_max - p.scale_min) * life
 
     if T_SEGCOL in layer.nodes:
@@ -110,7 +163,7 @@ def _state(p: Particle, layer, inst, t):
         angle = math.degrees(math.atan2(p.vel[1], p.vel[0]))
     else:
         angle = math.degrees(p.rot_speed * age) + inst_rot
-    return x, y, s * inst_scale[0], s * inst_scale[1], color, angle
+    return x, y, s * inst_scale[0], s * inst_scale[1], color, angle, life
 
 
 class TextureCache:
@@ -171,20 +224,20 @@ def render_effect(effect: awp.Effect, out_dir: str, fx_dir: str, textures_dir: s
     for old in glob.glob(os.path.join(out_dir, f"{effect.name}_*.png")):
         os.remove(old)  # clear stale frames so the set matches this run
     tex = TextureCache(fx_dir, textures_dir)
-    sim = [( layer, _build_particles(layer, i), _layer_transform(layer))
-           for i, layer in enumerate(effect.layers)]
+    sim = [(layer, _build_particles(layer, i), _layer_transform(layer),
+            _sheet(layer)) for i, layer in enumerate(effect.layers)]
 
     times = [effect.duration * f / max(1, frames - 1) for f in range(frames)]
 
     # pre-pass: world extent (positions +- half quad) to fit the canvas
     ext = 1.0
-    for layer, parts, inst in sim:
+    for layer, parts, inst, _sh in sim:
         for p in parts:
             for t in times:
                 st = _state(p, layer, inst, t)
                 if not st:
                     continue
-                x, y, sx, sy, _, _ = st
+                x, y, sx, sy = st[0], st[1], st[2], st[3]
                 ext = max(ext, abs(x) + layer.geom_w * sx / 2,
                           abs(y) + layer.geom_h * sy / 2)
     scale = (resolution / 2) / (ext * margin)
@@ -193,19 +246,20 @@ def render_effect(effect: awp.Effect, out_dir: str, fx_dir: str, textures_dir: s
     written = []
     for fi, t in enumerate(times):
         canvas = np.zeros((resolution, resolution, 4), np.float32)
-        for layer, parts, inst in sim:
+        for layer, parts, inst, sheet in sim:
             base = tex.get(layer.texture_url)
             additive = layer.blend_mode == "add"
             for p in parts:
                 st = _state(p, layer, inst, t)
                 if not st:
                     continue
-                x, y, sx, sy, color, angle = st
+                x, y, sx, sy, color, angle, life = st
                 w_px = max(1, int(layer.geom_w * sx * scale))
                 h_px = max(1, int(layer.geom_h * sy * scale))
                 if w_px > 4 * resolution or h_px > 4 * resolution:
                     continue
-                spr = base.resize((w_px, h_px), Image.BILINEAR)
+                cell = _sheet_cell(base, sheet, life)
+                spr = (cell or base).resize((w_px, h_px), Image.BILINEAR)
                 arr = np.asarray(spr, np.float32) / 255.0
                 arr = arr * np.array(color, np.float32)        # colour multiplier
                 spr = Image.fromarray(np.clip(arr * 255, 0, 255).astype(np.uint8), "RGBA")
