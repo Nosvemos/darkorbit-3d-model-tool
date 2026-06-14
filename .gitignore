@@ -2,9 +2,11 @@
 meshes/
 textures/
 models/
+fx/
 out/
 *.awd
 *.atf
+*.awp
 
 # --- Personal Blender scripts ---
 blender_scripts/

@@ -84,6 +84,9 @@ def render(mesh_name: str, overrides: dict) -> str:
     sprites = config.sprites_dir(mesh_name)
     os.makedirs(work, exist_ok=True)
     os.makedirs(sprites, exist_ok=True)
+    # clear previous frames so the sprite set always matches this run's frame count
+    for old in glob.glob(os.path.join(sprites, f"{mesh_name}_*.png")):
+        os.remove(old)
 
     cfg = dict(config.RENDER_DEFAULTS)
     cfg.update(overrides)
@@ -107,10 +110,14 @@ def render(mesh_name: str, overrides: dict) -> str:
         coords = {k: [[int(round(v[0])), int(round(v[1]))] if v else "OFF"
                       for v in vals] for k, vals in raw["points"].items()}
         meta = {"size": [raw["resolution"]] * 2}
-    # Coords.json: flat {point_name: [[x, y] | "OFF", ...]} to match the app format
-    with open(os.path.join(sprites, f"{mesh_name}_Coords.json"), "w",
-              encoding="utf-8") as f:
-        json.dump(coords, f, indent=4)
+    # Coords.json only when there are tracked points (ship mode); item / point-less
+    # renders skip it. Flat {point_name: [[x, y] | "OFF", ...]} matches the app format.
+    coords_path = os.path.join(sprites, f"{mesh_name}_Coords.json")
+    if coords:
+        with open(coords_path, "w", encoding="utf-8") as f:
+            json.dump(coords, f, indent=4)
+    elif os.path.exists(coords_path):
+        os.remove(coords_path)  # stale coords from a previous ship-mode run
     with open(os.path.join(work, f"{mesh_name}_meta.json"), "w",
               encoding="utf-8") as f:
         json.dump(meta, f, indent=4)
@@ -121,6 +128,9 @@ def main():
     ap = argparse.ArgumentParser(description="Turntable sprite renderer")
     ap.add_argument("mesh", nargs="?")
     ap.add_argument("--all", action="store_true")
+    ap.add_argument("--mode", choices=["auto", "ship", "item"],
+                    help="ship: track points + Coords.json; item: plain render, "
+                         "no points; auto: ship if points exist (default)")
     g = ap.add_argument_group("turntable")
     g.add_argument("--frames", type=int, help="frame count (e.g. 32, 72)")
     g.add_argument("--total-degrees", type=float, dest="total_degrees",
@@ -155,6 +165,7 @@ def main():
 
     # map CLI flags -> RENDER_DEFAULTS keys (only those the user actually set)
     flag_to_key = {
+        "mode": "mode",
         "frames": "frames", "total_degrees": "total_degrees",
         "deg_per_frame": "deg_per_frame", "start_angle": "start_angle",
         "frame_start": "frame_start", "resolution": "resolution",

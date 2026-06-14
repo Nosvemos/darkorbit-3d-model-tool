@@ -174,9 +174,14 @@ def main():
     sc = bpy.context.scene
     res = cfg["resolution"]
 
+    # item mode renders a plain model (ore / items) with no reference points;
+    # ship/auto track the engine_/laserpoint_ empties for the coordinates JSON.
     coord_prefixes = tuple(cfg.get("coord_prefixes", POINT_PREFIXES))
-    points = [o for o in sc.objects
-              if o.type == "EMPTY" and o.name.startswith(coord_prefixes)]
+    if cfg.get("mode") == "item":
+        points = []
+    else:
+        points = [o for o in sc.objects
+                  if o.type == "EMPTY" and o.name.startswith(coord_prefixes)]
     coords = {p.name: [] for p in points}
     frame_paths = []
 

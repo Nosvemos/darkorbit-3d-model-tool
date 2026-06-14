@@ -41,6 +41,10 @@ RENDER_SCRIPT = os.path.join(ROOT, "src", "blender", "render_sprites.py")
 # Default render settings. Override per-run via src.render CLI flags; the whole
 # dict is passed to Blender as JSON so every knob is configurable in one place.
 RENDER_DEFAULTS = {
+    # ship  -> track engine_/laserpoint_ points, write <mesh>_Coords.json
+    # item  -> plain render (ore, items like lf4, ...), no point tracking / no JSON
+    # auto  -> ship behaviour if any point empties exist, else item
+    "mode": "auto",
     "frames": 72,              # turntable frame count (1 = single still)
     "total_degrees": 360.0,    # full sweep; per-frame step = total_degrees / frames
     "deg_per_frame": None,     # set to override the auto step (e.g. 5.0)

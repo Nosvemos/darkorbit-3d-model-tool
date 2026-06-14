@@ -69,12 +69,21 @@ python -m src.pipeline --all                # every mesh in meshes/
 ```bash
 python -m src.render sibelon                       # 72-frame turntable, 256 px
 python -m src.render sibelon --frames 32           # any count -> full 360° turntable
+python -m src.render lf4 --mode item               # plain item/ore render, no points
 python -m src.render sibelon --resolution 1024 --samples 128 --persp
 python -m src.render sibelon --hdri city.exr --elevation 60 --azimuth 30
 python -m src.render --all
 ```
 
 If the `.glb` does not exist yet, the renderer builds it first.
+
+**Render mode** — `--mode`:
+
+| Mode | Behaviour |
+|------|-----------|
+| `auto` *(default)* | Track points and write `Coords.json` if the model has `engine_*` / `laserpoint_*` nodes; otherwise a plain render. |
+| `ship` | Force point tracking + `Coords.json`. |
+| `item` | Plain render (ore, items such as `lf4`, …) — no point tracking, no `Coords.json`. |
 
 **Turntable**
 
@@ -191,6 +200,21 @@ docs/            format research, architecture, roadmap
 | [`docs/05_open_questions.md`](docs/05_open_questions.md) | Resolved decisions & open questions |
 
 ---
+
+## FX / particle assets
+
+The `fx/` folder holds particle-effect assets: `fx_*.awd` meshes, `.atf` textures,
+and `<name>.zip` archives that each contain a single `<name>.awp`. An `.awp` is
+**plain JSON** describing an Away3D particle effect (`particleEvents`,
+`animationDatas`, `nodes`, material/geometry references) — "extraction" is just
+unzipping:
+
+```bash
+python tools/extract_awp.py        # unpack every fx/*.zip into fx/awp/ and validate JSON
+```
+
+The `fx_*.awd` meshes can also be converted with `python -m src.pipeline`.
+Particle playback/rendering from `.awp` is out of scope for now.
 
 ## Testing
 
