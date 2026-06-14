@@ -16,14 +16,17 @@ uçtan uca çalıştır, sonra toplu işle.
       ile karşılaştır (pixel/yapı eşleşmesi).
 - [ ] 4 kanalı da (diffuse/normal/specular/glow) batch decode.
 
-## Faz 2 — AWD parser
-- [ ] `AWDc` header + zlib decompress (doğrulandı).
-- [ ] AWD2 blok iterator (id/ns/type/flags/len).
-- [ ] Geometri blokları → vertex/index/uv/normal.
-- [ ] Scene-graph blokları → node ağacı + isim + transform matris.
-- [ ] Material/texture ref blokları → mesh↔texture eşleşmesi.
-- [ ] **Doğrulama**: `main`, `engine_*`, `laserpoint_*` node'ları + üçgen sayısı doğru;
-      ara model JSON dump'ı incelenebilir.
+## Faz 2 — AWD parser ✅
+- [x] Header + zlib decompress — `AWDc` ve standart `AWD\x02` varyantları (offset 12).
+- [x] AWD2 blok iterator (id/ns/type/flags/len, little-endian).
+- [x] Geometri blokları (type 1) → vertex/index/uv stream'leri (ftype 5=u16, 7=f32).
+- [x] Mesh instance blokları (type 23) → node adı + 3x4 transform + geom/material ref.
+- [x] Material blokları (type 81) → ad + flag props. Texture isim konvansiyonuyla.
+- [x] Animasyon klip adları (type 112) → `open`/`close`/`idle`.
+- [x] Dayanıklılık: f64-matrix varyantı + instance'sız orphan geometri → synthetic
+      instance; `null~<name>` materyalden ad kurtarma (protegit engine_0).
+- [x] **Doğrulama**: 11 mesh'in tamamı parse oldu; `engine_*`/`laserpoint_*` noktaları,
+      vertex/üçgen sayıları doğru. `src/awd/`, `tools/dump_awd.py`.
 
 ## Faz 3 — Blender sahne kurucu (headless)
 - [ ] Ara modelden mesh oluştur (verts/faces/uv/normal).
