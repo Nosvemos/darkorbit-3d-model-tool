@@ -145,6 +145,8 @@ def decode(raw: bytes) -> np.ndarray:
 
     if fmt in (0, 1):
         # raw RGB(888) / RGBA(8888): each block is one mip stored as JPEG-XR
+        if not blocks:
+            raise ATFError("format 0/1 has no image block")
         img = imagecodecs.jpegxr_decode(blocks[0])
         if img.ndim == 2:
             img = np.repeat(img[..., None], 3, axis=2)

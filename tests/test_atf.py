@@ -42,7 +42,8 @@ def test_decode_dxt1_palette():
 
 
 def test_decode_rejects_unsupported_format():
-    d = b"ATF" + bytes([0, 0, 0, 0xFF, 2, 0, 1, 0, 0, 0]) + bytes([1, 3, 3, 1])
+    # format 3 is not handled (only 0/1/2/4)
+    d = b"ATF" + bytes([0, 0, 0, 0xFF, 2, 0, 1, 0, 0]) + bytes([3, 3, 3, 1])
     with pytest.raises(ATFError):
         decode(d)
 
