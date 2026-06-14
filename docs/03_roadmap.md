@@ -67,10 +67,30 @@ Eski 3 script (viewport-bağımlı, hardcode, eski API) yerine headless render m
 
 ## Render kullanımı
 ```
-python -m src.render sibelon                       # varsayılan turntable (72f, 512px, ortho)
-python -m src.render sibelon --frames 36 --resolution 1024 --persp
+python -m src.render sibelon                       # varsayılan turntable (72f, 256px, ortho)
+python -m src.render sibelon --frames 32           # 32 frame = otomatik 360/32° adım (tam tur)
+python -m src.render sibelon --resolution 1024 --samples 128 --persp
 python -m src.render sibelon --hdri city.exr --elevation 60 --azimuth 30 --margin 1.3
+python -m src.render sibelon --deg-per-frame 5 --start-angle 90 --emission 0.4
 python -m src.render --all
 ```
-Çıktı: `out/<mesh>/frames/<mesh>_NNN.png` + `out/<mesh>/<mesh>_Coords.json`.
-HDRI seçenekleri: studio / city / courtyard / forest / interior / night / sunrise / sunset.
+Frame sayısı serbest; `total_degrees / frames` ile adım otomatik (eksik/fazla tur olmaz).
+HDRI: studio / city / courtyard / forest / interior / night / sunrise / sunset.
+CLI grupları: turntable (frames/total-degrees/deg-per-frame/start-angle/frame-start),
+output-quality (resolution/samples/engine/view-transform/no-crop/no-transparent/origin),
+camera-lighting (hdri/world-strength/sun-energy/emission/elevation/azimuth/persp/margin).
+
+## Çıktı yapısı (gruplu, profesyonel)
+```
+out/<mesh>/
+  model/
+    <mesh>.glb               # birincil, self-contained (texture gömülü)
+    textures/                # decode edilmiş kaynak PNG'ler
+    gltf/  <mesh>.gltf + .bin + textures
+    obj/   <mesh>.obj + .mtl
+  sprites/
+    <mesh>_1.png ... <mesh>_N.png   # 1-based isimlendirme
+    <mesh>_Coords.json              # düz {point: [[x,y]|"OFF",...]}, sadece engine_/laserpoint_
+  work/                       # ara dosyalar (scene/cfg/meta json)
+```
+Kalite: EEVEE samples 96, **Standard view transform** (texture renkleri doğru, AgX/Filmic değil).

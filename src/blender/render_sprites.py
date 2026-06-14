@@ -125,6 +125,14 @@ def setup_render(cfg):
         sc.eevee.taa_render_samples = cfg["samples"]
     except AttributeError:
         pass
+    # Standard view transform -> texture colours render as authored (game sprites),
+    # instead of AgX/Filmic tone mapping which desaturates and shifts hues.
+    vt = cfg.get("view_transform")
+    if vt:
+        try:
+            sc.view_settings.view_transform = vt
+        except TypeError:
+            pass
 
 
 def apply_emission(strength):
@@ -176,13 +184,19 @@ def main():
 
     frames = cfg["frames"]
     start = cfg.get("start_angle", 0.0)
+    # per-frame step: explicit override, else spread total_degrees across all frames
+    step = cfg.get("deg_per_frame")
+    if not step:
+        step = cfg.get("total_degrees", 360.0) / max(frames, 1)
+    frame_start = cfg.get("frame_start", 1)
     for f in range(frames):
-        root.rotation_euler.z = math.radians(start + f * cfg["deg_per_frame"])
+        root.rotation_euler.z = math.radians(start + f * step)
         bpy.context.view_layer.update()
-        path = os.path.join(out_dir, f"{name}_{f:03d}.png")
+        fname = f"{name}_{frame_start + f}.png"
+        path = os.path.join(out_dir, fname)
         sc.render.filepath = path
         bpy.ops.render.render(write_still=True)
-        frame_paths.append(os.path.basename(path))
+        frame_paths.append(fname)
         for p in points:
             coords[p.name].append(cam_coord(sc, cam, p.matrix_world.translation, res))
 

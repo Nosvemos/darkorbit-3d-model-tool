@@ -25,9 +25,9 @@ from src.atf import atf_to_png
 from src.awd import parse_file
 
 
-def decode_textures(mesh_name: str, out_dir: str) -> dict[str, str]:
+def decode_textures(mesh_name: str) -> dict[str, str]:
     """Decode each available channel ATF to PNG; return {channel: png_path}."""
-    tex_out = os.path.join(out_dir, "textures")
+    tex_out = os.path.join(config.model_dir(mesh_name), "textures")
     os.makedirs(tex_out, exist_ok=True)
     found: dict[str, str] = {}
     for channel in config.CHANNELS:
@@ -40,10 +40,10 @@ def decode_textures(mesh_name: str, out_dir: str) -> dict[str, str]:
     return found
 
 
-def build_scene_json(mesh_name: str, out_dir: str) -> str:
+def build_scene_json(mesh_name: str) -> str:
     """Parse the AWD and write the intermediate scene JSON. Returns its path."""
     scene = parse_file(os.path.join(config.MESHES_DIR, f"{mesh_name}.awd"))
-    textures = decode_textures(mesh_name, out_dir)
+    textures = decode_textures(mesh_name)
 
     objects = []
     for inst in scene.instances:
@@ -69,7 +69,7 @@ def build_scene_json(mesh_name: str, out_dir: str) -> str:
         })
 
     data = {"name": mesh_name, "objects": objects}
-    work = os.path.join(out_dir, "work")
+    work = config.work_dir(mesh_name)
     os.makedirs(work, exist_ok=True)
     json_path = os.path.join(work, f"{mesh_name}.scene.json")
     with open(json_path, "w", encoding="utf-8") as f:
@@ -94,10 +94,10 @@ def run_blender(scene_json: str, out_glb: str, gltf: bool, obj: bool) -> None:
 
 def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
             run: bool = True) -> str:
-    out_dir = os.path.join(config.OUT_DIR, mesh_name)
-    os.makedirs(out_dir, exist_ok=True)
-    scene_json = build_scene_json(mesh_name, out_dir)
-    out_glb = os.path.join(out_dir, f"{mesh_name}.glb")
+    model = config.model_dir(mesh_name)
+    os.makedirs(model, exist_ok=True)
+    scene_json = build_scene_json(mesh_name)
+    out_glb = os.path.join(model, f"{mesh_name}.glb")
     if run:
         run_blender(scene_json, out_glb, gltf, obj)
     return out_glb

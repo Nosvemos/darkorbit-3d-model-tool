@@ -76,75 +76,102 @@ def stable_crop(out_dir: str, raw: dict, padding: int, origin: str) -> dict:
 
 
 def render(mesh_name: str, overrides: dict) -> str:
-    out_dir = os.path.join(config.OUT_DIR, mesh_name)
-    glb = os.path.join(out_dir, f"{mesh_name}.glb")
+    glb = os.path.join(config.model_dir(mesh_name), f"{mesh_name}.glb")
     if not os.path.exists(glb):
         convert(mesh_name)  # build the glb first
 
-    work = os.path.join(out_dir, "work")
+    work = config.work_dir(mesh_name)
+    sprites = config.sprites_dir(mesh_name)
     os.makedirs(work, exist_ok=True)
+    os.makedirs(sprites, exist_ok=True)
+
     cfg = dict(config.RENDER_DEFAULTS)
     cfg.update(overrides)
     cfg_path = os.path.join(work, f"{mesh_name}_render_cfg.json")
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f)
 
-    frames_dir = os.path.join(out_dir, "frames")
     subprocess.run([config.BLENDER_EXE, "--background", "--python",
-                    config.RENDER_SCRIPT, "--", glb, frames_dir, cfg_path],
+                    config.RENDER_SCRIPT, "--", glb, sprites, cfg_path],
                    check=True)
 
-    raw_path = os.path.join(frames_dir, f"{mesh_name}_render_raw.json")
+    raw_path = os.path.join(sprites, f"{mesh_name}_render_raw.json")
     with open(raw_path, encoding="utf-8") as f:
         raw = json.load(f)
-    os.remove(raw_path)  # keep frames/ as pure PNGs
+    os.remove(raw_path)  # keep sprites/ tidy
 
-    coords_path = os.path.join(out_dir, f"{mesh_name}_Coords.json")
     if cfg["stable_crop"]:
-        coords, meta = stable_crop(frames_dir, raw, cfg["crop_padding"],
+        coords, meta = stable_crop(sprites, raw, cfg["crop_padding"],
                                    cfg["coord_origin"])
     else:
         coords = {k: [[int(round(v[0])), int(round(v[1]))] if v else "OFF"
                       for v in vals] for k, vals in raw["points"].items()}
         meta = {"size": [raw["resolution"]] * 2}
     # Coords.json: flat {point_name: [[x, y] | "OFF", ...]} to match the app format
-    with open(coords_path, "w", encoding="utf-8") as f:
+    with open(os.path.join(sprites, f"{mesh_name}_Coords.json"), "w",
+              encoding="utf-8") as f:
         json.dump(coords, f, indent=4)
     with open(os.path.join(work, f"{mesh_name}_meta.json"), "w",
               encoding="utf-8") as f:
         json.dump(meta, f, indent=4)
-    return frames_dir
+    return sprites
 
 
 def main():
     ap = argparse.ArgumentParser(description="Turntable sprite renderer")
     ap.add_argument("mesh", nargs="?")
     ap.add_argument("--all", action="store_true")
-    ap.add_argument("--frames", type=int)
-    ap.add_argument("--resolution", type=int)
-    ap.add_argument("--samples", type=int)
-    ap.add_argument("--hdri", help="bundled world HDRI, e.g. studio.exr / city.exr")
-    ap.add_argument("--elevation", type=float)
-    ap.add_argument("--azimuth", type=float)
-    ap.add_argument("--start-angle", type=float, dest="start_angle")
-    ap.add_argument("--emission", type=float, help="glow emission strength")
-    ap.add_argument("--persp", action="store_true", help="perspective (default ortho)")
-    ap.add_argument("--margin", type=float, help="frame padding factor (>1 zooms out)")
-    ap.add_argument("--origin", choices=["TOP_LEFT", "BOTTOM_LEFT"])
+    g = ap.add_argument_group("turntable")
+    g.add_argument("--frames", type=int, help="frame count (e.g. 32, 72)")
+    g.add_argument("--total-degrees", type=float, dest="total_degrees",
+                   help="total sweep, default 360")
+    g.add_argument("--deg-per-frame", type=float, dest="deg_per_frame",
+                   help="explicit per-frame step (overrides total/frames)")
+    g.add_argument("--start-angle", type=float, dest="start_angle")
+    g.add_argument("--frame-start", type=int, dest="frame_start",
+                   help="first frame number in filenames (default 1)")
+
+    g = ap.add_argument_group("output / quality")
+    g.add_argument("--resolution", type=int)
+    g.add_argument("--samples", type=int)
+    g.add_argument("--engine")
+    g.add_argument("--view-transform", dest="view_transform",
+                   help="Standard / AgX / Filmic")
+    g.add_argument("--no-crop", action="store_true", help="disable stable crop")
+    g.add_argument("--no-transparent", action="store_true",
+                   help="render on opaque background")
+    g.add_argument("--origin", choices=["TOP_LEFT", "BOTTOM_LEFT"])
+
+    g = ap.add_argument_group("camera / lighting")
+    g.add_argument("--hdri", help="bundled world HDRI, e.g. studio.exr / city.exr")
+    g.add_argument("--world-strength", type=float, dest="world_strength")
+    g.add_argument("--sun-energy", type=float, dest="sun_energy")
+    g.add_argument("--emission", type=float, help="glow emission strength")
+    g.add_argument("--elevation", type=float)
+    g.add_argument("--azimuth", type=float)
+    g.add_argument("--persp", action="store_true", help="perspective (default ortho)")
+    g.add_argument("--margin", type=float, help="frame padding factor (>1 zooms out)")
     args = ap.parse_args()
 
+    # map CLI flags -> RENDER_DEFAULTS keys (only those the user actually set)
+    flag_to_key = {
+        "frames": "frames", "total_degrees": "total_degrees",
+        "deg_per_frame": "deg_per_frame", "start_angle": "start_angle",
+        "frame_start": "frame_start", "resolution": "resolution",
+        "samples": "samples", "engine": "engine", "view_transform": "view_transform",
+        "origin": "coord_origin", "hdri": "world_hdri",
+        "world_strength": "world_strength", "sun_energy": "sun_energy",
+        "emission": "emission_strength", "elevation": "cam_elevation",
+        "azimuth": "cam_azimuth", "margin": "cam_margin",
+    }
     ov: dict = {}
-    if args.frames is not None: ov["frames"] = args.frames
-    if args.resolution is not None: ov["resolution"] = args.resolution
-    if args.samples is not None: ov["samples"] = args.samples
-    if args.hdri: ov["world_hdri"] = args.hdri
-    if args.elevation is not None: ov["cam_elevation"] = args.elevation
-    if args.azimuth is not None: ov["cam_azimuth"] = args.azimuth
-    if args.start_angle is not None: ov["start_angle"] = args.start_angle
-    if args.emission is not None: ov["emission_strength"] = args.emission
+    for flag, key in flag_to_key.items():
+        val = getattr(args, flag)
+        if val is not None:
+            ov[key] = val
     if args.persp: ov["cam_ortho"] = False
-    if args.margin is not None: ov["cam_margin"] = args.margin
-    if args.origin: ov["coord_origin"] = args.origin
+    if args.no_crop: ov["stable_crop"] = False
+    if args.no_transparent: ov["film_transparent"] = False
 
     if args.all:
         names = [os.path.splitext(os.path.basename(p))[0]

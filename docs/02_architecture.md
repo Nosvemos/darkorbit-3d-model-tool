@@ -15,11 +15,12 @@ src/
     build_scene.py    # (blender --background --python) import + material wire + empties + export
   pipeline.py         # CLI orkestratör: meshes/ döngüsü
   config.py           # yollar, blender exe, çıktı formatı seçimi
+  render.py             # turntable sprite render orchestrator (Faz 5)
 out/
   <mesh>/
-    <mesh>.glb / .gltf / .obj
-    textures/*.png
-    <mesh>_points.json   # engine_/laserpoint_ koordinatları (ileride render için)
+    model/   <mesh>.glb (+textures/, gltf/, obj/)
+    sprites/ <mesh>_1.png ... + <mesh>_Coords.json   # engine_/laserpoint_ koordinatları
+    work/    ara dosyalar (scene/cfg/meta json)
 ```
 
 ## Karar 1 — ATF decode: kendi decoder'ımız

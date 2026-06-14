@@ -151,14 +151,23 @@ def main():
     for ob in points:
         to_empty(ob, main)
 
-    os.makedirs(os.path.dirname(out_glb), exist_ok=True)
+    # glb is the self-contained primary in model/; the separate gltf and obj
+    # formats go in their own subdirs so their sidecar files (bin/mtl/textures)
+    # don't clutter model/.
+    base = os.path.dirname(out_glb)
+    name = os.path.splitext(os.path.basename(out_glb))[0]
+    os.makedirs(base, exist_ok=True)
     bpy.ops.export_scene.gltf(filepath=out_glb, export_format="GLB",
                               export_yup=True, use_visible=True)
     if want_gltf:
-        bpy.ops.export_scene.gltf(filepath=out_glb[:-4] + ".gltf",
+        d = os.path.join(base, "gltf")
+        os.makedirs(d, exist_ok=True)
+        bpy.ops.export_scene.gltf(filepath=os.path.join(d, name + ".gltf"),
                                   export_format="GLTF_SEPARATE", export_yup=True)
     if want_obj:
-        bpy.ops.wm.obj_export(filepath=out_glb[:-4] + ".obj")
+        d = os.path.join(base, "obj")
+        os.makedirs(d, exist_ok=True)
+        bpy.ops.wm.obj_export(filepath=os.path.join(d, name + ".obj"))
     print(f"[build_scene] exported {out_glb} "
           f"({len(meshes)} meshes, {len(points)} points)")
 

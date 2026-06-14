@@ -48,10 +48,41 @@ Full plan and format research live in [`docs/`](docs/):
 | [`04_blender_scripts.md`](docs/04_blender_scripts.md) | Review of existing Blender scripts |
 | [`05_open_questions.md`](docs/05_open_questions.md) | Resolved decisions & remaining questions |
 
+## Usage
+
+```bash
+# Convert a mesh (or --all) to glb (+ optional gltf/obj)
+python -m src.pipeline sibelon --gltf --obj
+python -m src.pipeline --all
+
+# Render a turntable sprite sequence + reference-point coordinates
+python -m src.render sibelon --frames 32
+python -m src.render sibelon --resolution 1024 --samples 128 --hdri city.exr
+python -m src.render --all
+```
+
+Output is grouped per mesh:
+
+```
+out/<mesh>/
+  model/    <mesh>.glb, textures/, gltf/, obj/
+  sprites/  <mesh>_1.png … <mesh>_N.png, <mesh>_Coords.json
+  work/     intermediates
+```
+
+`<mesh>_Coords.json` is a flat `{point_name: [[x, y] | "OFF", ...]}` map of the
+per-frame screen positions of the `engine_*` / `laserpoint_*` points.
+
+Render is fully configurable via CLI flags (frame count, resolution, samples,
+camera elevation/azimuth, HDRI, lighting, view transform, …) or
+`config.RENDER_DEFAULTS`. Frame step is derived from `total_degrees / frames`,
+so any frame count produces a full turntable.
+
 ## Status
 
-🚧 Planning complete. Implementation starts with the ATF decoder (Phase 1) and
-AWD parser (Phase 2), validated end-to-end on a single mesh first.
+✅ Working end to end: all 11 meshes convert to glb and render turntable sprites.
+ATF decoder, AWD parser, Blender scene builder, batch pipeline, and headless
+sprite renderer are implemented and verified. See [`docs/`](docs/) for details.
 
 ## License
 
