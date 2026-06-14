@@ -13,12 +13,13 @@ rendering and animation.
 
 ## Features
 
-- **ATF → PNG** — pure-Python decoder for ATF (format 2 / DXT1): LZMA colour
-  indices + JPEG-XR endpoints decoded straight to RGBA.
+- **ATF → PNG** — pure-Python decoder for the ATF formats in use: DXT1 (2) and
+  DXT5 (4) via LZMA indices + JPEG-XR endpoints, plus raw RGB/RGBA (0/1).
 - **AWD → mesh** — pure-Python AWD2 parser: geometry, scene-graph instances with
-  names and transforms, materials, and animation-clip names.
+  names and transforms, materials, and vertex (pose) animation clips.
 - **glb / gltf / obj export** — built in Blender headless, with PBR materials
-  wired from the diffuse / normal / specular / glow channels.
+  wired from the diffuse / normal / specular / glow channels. Vertex animations
+  are exported as glTF morph targets with weight animation.
 - **Reference points preserved** — `engine_*` / `laserpoint_*` / `light_position`
   nodes are exported as Empties parented to the main body.
 - **Turntable sprite renderer** — headless, reproducible lighting, any frame
@@ -250,9 +251,10 @@ do3d ui            # serves http://127.0.0.1:8765 and opens the browser
 Browse meshes / fx meshes / effects in the sidebar, inspect an asset (objects,
 reference points, clips, textures), then convert to glb or render sprites /
 particle effects right from the page. Rendered turntables play back inline as an
-animated preview, with download links for the glb and `Coords.json`. It calls the
-same functions as the CLI, so anything the UI does is reproducible on the command
-line.
+animated preview, with download links for the glb and `Coords.json`. Long Blender
+renders run as background jobs that stream live progress (elapsed time + log) to
+the page. It calls the same functions as the CLI, so anything the UI does is
+reproducible on the command line.
 
 **Manual textures.** Auto-detection maps `<mesh>_<channel>_512.atf` by filename;
 when an asset doesn't follow that convention (many `fx_*.awd` meshes, or oddly
@@ -296,8 +298,8 @@ python tools/extract_awp.py        # unpack every fx/*.zip into fx/awp/ and vali
 | `--margin F` | 1.2 | Canvas padding factor. |
 
 Supported particle nodes: time, position, velocity, acceleration, scale,
-segmented/initial colour, rotation, billboard. (Orbit / oscillator / sprite-sheet
-/ UV / follow are not modelled yet.)
+segmented/initial colour, rotation, billboard, orbit, oscillator, and
+sprite-sheet (flip-book) animation. (UV scroll and follow are treated as no-ops.)
 
 The plain `fx_*.awd` meshes in `fx/` (rings, spheres, shards, …) convert and
 render with the `--fx` flag, which sources both meshes and textures from `fx/`
