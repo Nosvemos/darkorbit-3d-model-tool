@@ -1,9 +1,10 @@
 # --- Asset data (game-owned / large binaries, not for distribution) ---
-meshes/
-textures/
-models/
-fx/
-out/
+# anchored to repo root so they don't also match src/fx/, etc.
+/meshes/
+/textures/
+/models/
+/fx/
+/out/
 *.awd
 *.atf
 *.awp

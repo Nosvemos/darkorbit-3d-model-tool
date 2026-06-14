@@ -84,30 +84,85 @@ def _decode_dxt1(endpoints: np.ndarray, index_bytes: bytes,
     return px.reshape(height, width, 3).astype(np.uint8)
 
 
+def _color_endpoints(jxr_block) -> np.ndarray:
+    ep = imagecodecs.jpegxr_decode(jxr_block)
+    if ep.ndim == 2:
+        ep = np.repeat(ep[..., None], 3, axis=2)
+    return ep[..., :3]
+
+
+def _strip_index(raw_bytes: bytes, n: int) -> bytes:
+    """LZMA index streams are n bytes; some carry one leading flag byte."""
+    return raw_bytes[1:1 + n] if len(raw_bytes) > n else raw_bytes[:n]
+
+
+def _decode_alpha(alpha_ep: np.ndarray, index_bytes: bytes,
+                  width: int, height: int) -> np.ndarray:
+    """BC4-style alpha: 2 endpoints/block + 3-bit indices (6 bytes/block)."""
+    bw, bh = width // 4, height // 4
+    a0 = alpha_ep[:bh].astype(np.int32)               # (bh, bw)
+    a1 = alpha_ep[bh:2 * bh].astype(np.int32)
+
+    raw = np.frombuffer(index_bytes, np.uint8, count=bw * bh * 6).reshape(bh, bw, 6)
+    val = np.zeros((bh, bw), np.uint64)
+    for k in range(6):
+        val |= raw[:, :, k].astype(np.uint64) << np.uint64(8 * k)
+    sel = np.stack([((val >> np.uint64(3 * t)) & np.uint64(7)).astype(np.int64)
+                    for t in range(16)], axis=-1)      # (bh, bw, 16)
+
+    # two interpolation tables depending on a0 > a1
+    def table(a, b):
+        return [a, b,
+                (6 * a + b) // 7, (5 * a + 2 * b) // 7, (4 * a + 3 * b) // 7,
+                (3 * a + 4 * b) // 7, (2 * a + 5 * b) // 7, (a + 6 * b) // 7]
+
+    def table_lo(a, b):
+        z = np.zeros_like(a)
+        return [a, b, (4 * a + b) // 5, (3 * a + 2 * b) // 5, (2 * a + 3 * b) // 5,
+                (a + 4 * b) // 5, z, z + 255]
+
+    hi = np.stack(table(a0, a1), axis=2)               # (bh, bw, 8)
+    lo = np.stack(table_lo(a0, a1), axis=2)
+    pal = np.where((a0 > a1)[:, :, None], hi, lo)
+
+    rows = np.arange(bh)[:, None, None]
+    cols = np.arange(bw)[None, :, None]
+    px = pal[rows, cols, sel]                          # (bh, bw, 16)
+    px = px.reshape(bh, bw, 4, 4).transpose(0, 2, 1, 3)
+    return px.reshape(height, width).astype(np.uint8)
+
+
 def decode(raw: bytes) -> np.ndarray:
-    """Decode ATF bytes into an (H, W, 4) RGBA uint8 array (mip 0)."""
+    """Decode ATF bytes into an (H, W, 4) RGBA uint8 array (mip 0).
+
+    format 2 = DXT1 (2 blocks: colour indices + endpoints).
+    format 4 = DXT5 (4 blocks: alpha indices, alpha endpoints, colour indices,
+               colour endpoints).
+    """
     fmt, width, height, mips, off = _parse_header(raw)
-    if fmt != 2:
-        raise ATFError(f"unsupported ATF format {fmt} (only 2/compressed/DXT1)")
-
     blocks = list(_blocks(raw, off))
-    if len(blocks) < 2:
-        raise ATFError(f"expected 2 blocks (indices + endpoints), got {len(blocks)}")
+    n = (width // 4) * (height // 4)
 
-    n_blocks = (width // 4) * (height // 4)
-    index_data = _lzma_raw(blocks[0], n_blocks * 4 + 16)
-    # a single leading flag byte precedes the index stream
-    index_data = index_data[1:1 + n_blocks * 4] if len(index_data) > n_blocks * 4 \
-        else index_data[:n_blocks * 4]
+    if fmt == 2:
+        if len(blocks) < 2:
+            raise ATFError(f"expected 2 blocks, got {len(blocks)}")
+        rgb = _decode_dxt1(_color_endpoints(blocks[1]),
+                           _strip_index(_lzma_raw(blocks[0], n * 4 + 16), n * 4),
+                           width, height)
+        alpha = np.full((height, width), 255, np.uint8)
+    elif fmt == 4:
+        if len(blocks) < 4:
+            raise ATFError(f"expected 4 blocks for DXT5, got {len(blocks)}")
+        rgb = _decode_dxt1(_color_endpoints(blocks[3]),
+                           _strip_index(_lzma_raw(blocks[2], n * 4 + 16), n * 4),
+                           width, height)
+        alpha = _decode_alpha(imagecodecs.jpegxr_decode(blocks[1]),
+                              _strip_index(_lzma_raw(blocks[0], n * 6 + 16), n * 6),
+                              width, height)
+    else:
+        raise ATFError(f"unsupported ATF format {fmt} (only 2/DXT1 and 4/DXT5)")
 
-    endpoints = imagecodecs.jpegxr_decode(blocks[1])
-    if endpoints.ndim == 2:
-        endpoints = np.repeat(endpoints[..., None], 3, axis=2)
-    endpoints = endpoints[..., :3]
-
-    rgb = _decode_dxt1(endpoints, index_data, width, height)
-    rgba = np.dstack([rgb, np.full((height, width), 255, np.uint8)])
-    return rgba
+    return np.dstack([rgb, alpha])
 
 
 def decode_file(path: str) -> np.ndarray:

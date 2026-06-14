@@ -25,25 +25,44 @@ from src.atf import atf_to_png
 from src.awd import parse_file
 
 
-def decode_textures(mesh_name: str) -> dict[str, str]:
+def _find_texture(textures_dir: str, mesh_name: str, channel: str) -> str | None:
+    """Locate a channel ATF, preferring higher resolution (512 > 256 > 128 > none)."""
+    for suffix in ("_512", "_256", "_128", ""):
+        atf = os.path.join(textures_dir, f"{mesh_name}_{channel}{suffix}.atf")
+        if os.path.exists(atf):
+            return atf
+    return None
+
+
+def decode_textures(mesh_name: str, textures_dir: str, model_out: str) -> dict[str, str]:
     """Decode each available channel ATF to PNG; return {channel: png_path}."""
-    tex_out = os.path.join(config.model_dir(mesh_name), "textures")
+    tex_out = os.path.join(model_out, "textures")
     os.makedirs(tex_out, exist_ok=True)
     found: dict[str, str] = {}
     for channel in config.CHANNELS:
-        atf = os.path.join(config.TEXTURES_DIR,
-                           f"{mesh_name}_{channel}{config.TEXTURE_SUFFIX}.atf")
-        if os.path.exists(atf):
+        atf = _find_texture(textures_dir, mesh_name, channel)
+        if atf:
             png = os.path.join(tex_out, f"{mesh_name}_{channel}.png")
             atf_to_png(atf, png)
             found[channel] = png
+    # fx meshes have no channel convention; fall back to a single <mesh>.atf as diffuse
+    if not found:
+        single = os.path.join(textures_dir, f"{mesh_name}.atf")
+        if os.path.exists(single):
+            png = os.path.join(tex_out, f"{mesh_name}_diffuse.png")
+            try:
+                atf_to_png(single, png)
+                found["diffuse"] = png
+            except Exception:
+                pass
     return found
 
 
-def build_scene_json(mesh_name: str) -> str:
+def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
+                     model_out: str, work: str) -> str:
     """Parse the AWD and write the intermediate scene JSON. Returns its path."""
-    scene = parse_file(os.path.join(config.MESHES_DIR, f"{mesh_name}.awd"))
-    textures = decode_textures(mesh_name)
+    scene = parse_file(os.path.join(meshes_dir, f"{mesh_name}.awd"))
+    textures = decode_textures(mesh_name, textures_dir, model_out)
 
     objects = []
     for inst in scene.instances:
@@ -69,7 +88,6 @@ def build_scene_json(mesh_name: str) -> str:
         })
 
     data = {"name": mesh_name, "objects": objects}
-    work = config.work_dir(mesh_name)
     os.makedirs(work, exist_ok=True)
     json_path = os.path.join(work, f"{mesh_name}.scene.json")
     with open(json_path, "w", encoding="utf-8") as f:
@@ -93,10 +111,14 @@ def run_blender(scene_json: str, out_glb: str, gltf: bool, obj: bool) -> None:
 
 
 def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
-            run: bool = True) -> str:
-    model = config.model_dir(mesh_name)
+            run: bool = True, fx: bool = False) -> str:
+    meshes_dir = config.FX_DIR if fx else config.MESHES_DIR
+    textures_dir = config.FX_DIR if fx else config.TEXTURES_DIR
+    out_base = config.FX_OUT if fx else config.OUT_DIR
+    model = config.model_dir(mesh_name, out_base)
+    work = config.work_dir(mesh_name, out_base)
     os.makedirs(model, exist_ok=True)
-    scene_json = build_scene_json(mesh_name)
+    scene_json = build_scene_json(mesh_name, meshes_dir, textures_dir, model, work)
     out_glb = os.path.join(model, f"{mesh_name}.glb")
     if run:
         run_blender(scene_json, out_glb, gltf, obj)
@@ -107,15 +129,18 @@ def main():
     ap = argparse.ArgumentParser(description="DarkOrbit AWD/ATF -> glb pipeline")
     ap.add_argument("mesh", nargs="?", help="mesh name (without .awd)")
     ap.add_argument("--all", action="store_true", help="convert every mesh")
+    ap.add_argument("--fx", action="store_true",
+                    help="read fx_*.awd + textures from fx/ and output under out/fx/")
     ap.add_argument("--gltf", action="store_true", help="also export .gltf")
     ap.add_argument("--obj", action="store_true", help="also export .obj")
     ap.add_argument("--no-blender", action="store_true",
                     help="only emit scene JSON + textures, skip Blender")
     args = ap.parse_args()
 
+    src_dir = config.FX_DIR if args.fx else config.MESHES_DIR
     if args.all:
         names = [os.path.splitext(os.path.basename(p))[0]
-                 for p in sorted(glob.glob(os.path.join(config.MESHES_DIR, "*.awd")))]
+                 for p in sorted(glob.glob(os.path.join(src_dir, "*.awd")))]
     elif args.mesh:
         names = [args.mesh]
     else:
@@ -123,7 +148,8 @@ def main():
 
     for name in names:
         print(f"=== {name} ===")
-        out = convert(name, gltf=args.gltf, obj=args.obj, run=not args.no_blender)
+        out = convert(name, gltf=args.gltf, obj=args.obj,
+                      run=not args.no_blender, fx=args.fx)
         print(f"  -> {out}")
 
 

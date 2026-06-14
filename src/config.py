@@ -6,6 +6,7 @@ import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MESHES_DIR = os.path.join(ROOT, "meshes")
 TEXTURES_DIR = os.path.join(ROOT, "textures")
+FX_DIR = os.path.join(ROOT, "fx")
 OUT_DIR = os.path.join(ROOT, "out")
 
 
@@ -14,20 +15,24 @@ OUT_DIR = os.path.join(ROOT, "out")
 #     model/    <mesh>.glb (+ .gltf/.obj) and textures/
 #     sprites/  <mesh>_1.png ... and <mesh>_Coords.json
 #     work/     intermediates (scene/cfg/meta json)
-def mesh_dir(mesh: str) -> str:
-    return os.path.join(OUT_DIR, mesh)
+def mesh_dir(mesh: str, base: str = OUT_DIR) -> str:
+    return os.path.join(base, mesh)
 
 
-def model_dir(mesh: str) -> str:
-    return os.path.join(OUT_DIR, mesh, "model")
+def model_dir(mesh: str, base: str = OUT_DIR) -> str:
+    return os.path.join(base, mesh, "model")
 
 
-def sprites_dir(mesh: str) -> str:
-    return os.path.join(OUT_DIR, mesh, "sprites")
+def sprites_dir(mesh: str, base: str = OUT_DIR) -> str:
+    return os.path.join(base, mesh, "sprites")
 
 
-def work_dir(mesh: str) -> str:
-    return os.path.join(OUT_DIR, mesh, "work")
+def work_dir(mesh: str, base: str = OUT_DIR) -> str:
+    return os.path.join(base, mesh, "work")
+
+
+# fx/ meshes and particle effects render under out/fx/<name>/
+FX_OUT = os.path.join(OUT_DIR, "fx")
 
 # Blender 5.x (Steam). Override with the BLENDER env var if installed elsewhere.
 BLENDER_EXE = os.environ.get(

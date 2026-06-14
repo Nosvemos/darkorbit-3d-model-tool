@@ -75,13 +75,14 @@ def stable_crop(out_dir: str, raw: dict, padding: int, origin: str) -> dict:
     return adjusted, {"crop": [gx1, gy1, gx2, gy2], "size": [gx2 - gx1, gy2 - gy1]}
 
 
-def render(mesh_name: str, overrides: dict) -> str:
-    glb = os.path.join(config.model_dir(mesh_name), f"{mesh_name}.glb")
+def render(mesh_name: str, overrides: dict, fx: bool = False) -> str:
+    base = config.FX_OUT if fx else config.OUT_DIR
+    glb = os.path.join(config.model_dir(mesh_name, base), f"{mesh_name}.glb")
     if not os.path.exists(glb):
-        convert(mesh_name)  # build the glb first
+        convert(mesh_name, fx=fx)  # build the glb first
 
-    work = config.work_dir(mesh_name)
-    sprites = config.sprites_dir(mesh_name)
+    work = config.work_dir(mesh_name, base)
+    sprites = config.sprites_dir(mesh_name, base)
     os.makedirs(work, exist_ok=True)
     os.makedirs(sprites, exist_ok=True)
     # clear previous frames so the sprite set always matches this run's frame count
@@ -128,6 +129,8 @@ def main():
     ap = argparse.ArgumentParser(description="Turntable sprite renderer")
     ap.add_argument("mesh", nargs="?")
     ap.add_argument("--all", action="store_true")
+    ap.add_argument("--fx", action="store_true",
+                    help="render fx_*.awd meshes from fx/ (output under out/fx/)")
     ap.add_argument("--mode", choices=["auto", "ship", "item"],
                     help="ship: track points + Coords.json; item: plain render, "
                          "no points; auto: ship if points exist (default)")
@@ -184,9 +187,10 @@ def main():
     if args.no_crop: ov["stable_crop"] = False
     if args.no_transparent: ov["film_transparent"] = False
 
+    src_dir = config.FX_DIR if args.fx else config.MESHES_DIR
     if args.all:
         names = [os.path.splitext(os.path.basename(p))[0]
-                 for p in sorted(glob.glob(os.path.join(config.MESHES_DIR, "*.awd")))]
+                 for p in sorted(glob.glob(os.path.join(src_dir, "*.awd")))]
     elif args.mesh:
         names = [args.mesh]
     else:
@@ -194,7 +198,7 @@ def main():
 
     for name in names:
         print(f"=== render {name} ===")
-        print(f"  -> {render(name, ov)}")
+        print(f"  -> {render(name, ov, fx=args.fx)}")
 
 
 if __name__ == "__main__":

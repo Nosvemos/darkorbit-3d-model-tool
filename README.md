@@ -59,10 +59,15 @@ python -m src.pipeline --all                # every mesh in meshes/
 | Argument | Description |
 |----------|-------------|
 | `mesh` | Mesh name without extension (e.g. `sibelon`). Omit when using `--all`. |
-| `--all` | Convert every `.awd` in `meshes/`. |
+| `--all` | Convert every `.awd` in `meshes/` (or `fx/` with `--fx`). |
+| `--fx` | Read `fx_*.awd` + textures from `fx/`; output under `out/fx/<mesh>/`. |
 | `--gltf` | Also export `.gltf` (separate) into `model/gltf/`. |
 | `--obj` | Also export `.obj` (+ `.mtl`) into `model/obj/`. |
 | `--no-blender` | Only decode textures and emit the scene JSON; skip Blender. |
+
+Texture lookup prefers the highest resolution available
+(`<mesh>_<channel>_512/256/128.atf`) and falls back to a single `<mesh>.atf`
+bound as the base colour (used by `fx/` meshes, which have no channel naming).
 
 ### Rendering — `python -m src.render`
 
@@ -206,15 +211,46 @@ docs/            format research, architecture, roadmap
 The `fx/` folder holds particle-effect assets: `fx_*.awd` meshes, `.atf` textures,
 and `<name>.zip` archives that each contain a single `<name>.awp`. An `.awp` is
 **plain JSON** describing an Away3D particle effect (`particleEvents`,
-`animationDatas`, `nodes`, material/geometry references) — "extraction" is just
-unzipping:
+`animationDatas`, `nodes`, material/geometry references).
+
+**Render an effect to sprite frames** — `python -m src.fx_render`:
+
+```bash
+python -m src.fx_render explosion0                 # -> out/fx/explosion0/sprites/
+python -m src.fx_render explosion0 --frames 24 --resolution 256
+python -m src.fx_render --all
+```
+
+The particles are simulated in 3D and composited as camera-facing billboards with
+the layer's blend mode (additive / alpha). The referenced textures are decoded
+straight from the `.atf` assets (DXT1 + DXT5). The `.zip` is unpacked
+automatically; to just extract the JSON:
 
 ```bash
 python tools/extract_awp.py        # unpack every fx/*.zip into fx/awp/ and validate JSON
 ```
 
-The `fx_*.awd` meshes can also be converted with `python -m src.pipeline`.
-Particle playback/rendering from `.awp` is out of scope for now.
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `name` | — | Effect name (without `.zip`/`.awp`). Omit with `--all`. |
+| `--all` | — | Render every `fx/*.zip`. |
+| `--frames N` | 30 | Frames across the effect duration. |
+| `--resolution PX` | 256 | Square sprite resolution. |
+| `--margin F` | 1.2 | Canvas padding factor. |
+
+Supported particle nodes: time, position, velocity, acceleration, scale,
+segmented/initial colour, rotation, billboard. (Orbit / oscillator / sprite-sheet
+/ UV / follow are not modelled yet.)
+
+The plain `fx_*.awd` meshes in `fx/` (rings, spheres, shards, …) convert and
+render with the `--fx` flag, which sources both meshes and textures from `fx/`
+and writes under `out/fx/<mesh>/`:
+
+```bash
+python -m src.pipeline fx_crystal_shard --fx       # -> out/fx/fx_crystal_shard/model/
+python -m src.render fx_ring --fx                  # turntable sprites
+python -m src.pipeline --all --fx                  # every fx_*.awd
+```
 
 ## Testing
 
@@ -229,7 +265,8 @@ pytest
 Tests cover the AWD2 parser (both header variants, geometry/instance/material
 decoding, orphan-name recovery, the property-skip regression), the ATF decoder
 (header parsing, DXT1 reconstruction, full encode→decode round-trip), the
-intermediate model, and the render stable-crop / coordinate logic. The Blender
+intermediate model, the render stable-crop / coordinate logic, and the `.awp`
+particle parser (value samplers, segmented colour, effect loading). The Blender
 scripts (which need `bpy`) are syntax-checked rather than executed.
 
 CI runs the suite on Python 3.10–3.12 via GitHub Actions
