@@ -49,10 +49,28 @@ uçtan uca çalıştır, sonra toplu işle.
 - [x] **Doğrulama**: 11 mesh'in tamamı tek komutla glb'ye dönüştü (`out/<mesh>/`).
       Mimari: sistem-Python (numpy/imagecodecs) ↔ Blender (sadece bpy+stdlib) ayrık.
 
-## Faz 5 — Render scriptleri entegrasyonu (opsiyonel/sonraki)
-- [ ] Mevcut `rotation_animation.py`, `mesh_to_plain_axes.py`, `2d_to_3d_render.py`'i
-      pipeline çıktısıyla çalışacak şekilde uyarla (bkz `04_blender_scripts.md`).
-- [ ] `FILE_NAME`/yol gibi hardcode değerleri parametrize et.
+## Faz 5 — Render scriptleri entegrasyonu ✅
+Eski 3 script (viewport-bağımlı, hardcode, eski API) yerine headless render modülü.
+- [x] `src/blender/render_sprites.py` (Blender 5.x, headless): glb import → world
+      HDRI + sun lighting → framing kamera (ortho/persp) → turntable Z rotation →
+      transparent RGBA frame render → `engine_/laserpoint_` empty'lerinin ekran
+      koordinatlarını topla → ham JSON.
+- [x] `src/render.py` (orchestrator): config (defaults+CLI override) → Blender →
+      PIL ile stable crop + koordinat origin ayarı → `<mesh>_Coords.json`.
+- [x] Tüm hardcode değerler parametrize (`config.RENDER_DEFAULTS` + CLI):
+      frames, çözünürlük, samples, HDRI, kamera açısı (elevation/azimuth/ortho/fov/
+      margin), sun, coord origin, crop padding.
+- [x] `mesh_to_plain_axes.py` mantığı zaten Faz 3'te pipeline'a entegre (empties).
+- [x] **Doğrulama**: sibelon 512px turntable; 5 nokta her frame doğru izlendi
+      (overlay ile kontrol: laserpoint ön, engine arka nozül, light üst); stable crop
+      çalışıyor. Lighting headless reproducible (material-preview bağımlılığı kaldırıldı).
 
-## Önce yapılacak ilk somut adım
-Faz 1 + Faz 2'yi paralel başlat (birbirinden bağımsız), cubikon üzerinde doğrula.
+## Render kullanımı
+```
+python -m src.render sibelon                       # varsayılan turntable (72f, 512px, ortho)
+python -m src.render sibelon --frames 36 --resolution 1024 --persp
+python -m src.render sibelon --hdri city.exr --elevation 60 --azimuth 30 --margin 1.3
+python -m src.render --all
+```
+Çıktı: `out/<mesh>/frames/<mesh>_NNN.png` + `out/<mesh>/<mesh>_Coords.json`.
+HDRI seçenekleri: studio / city / courtyard / forest / interior / night / sunrise / sunset.
