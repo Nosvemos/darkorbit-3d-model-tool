@@ -30,21 +30,24 @@ uçtan uca çalıştır, sonra toplu işle.
 - [x] **Doğrulama**: 11 mesh'in tamamı parse oldu; `engine_*`/`laserpoint_*` noktaları,
       vertex/üçgen sayıları doğru. `src/awd/`, `tools/dump_awd.py`.
 
-## Faz 3 — Blender sahne kurucu (headless)
-- [ ] Ara modelden mesh oluştur (verts/faces/uv/normal).
-- [ ] Material node graph (Karar 4 şeması) + PNG bağlama.
-- [ ] `engine_/laserpoint_` mesh'lerini Empty (PLAIN_AXES) yap, `main` altına parent et
-      (mevcut `mesh_to_plain_axes.py` mantığı).
-- [ ] Export: `.glb` (varsayılan) + opsiyonel `.gltf` / `.obj`.
-- [ ] `<mesh>_points.json` yaz (referans nokta koordinatları).
-- [ ] **Doğrulama**: cubikon.glb modern viewer'da doğru görünür, texture'lar bağlı,
-      empties yerinde.
+## Faz 3 — Blender sahne kurucu (headless) ✅
+- [x] Ara modelden (JSON) mesh oluştur (verts/faces/uv); local geom + `matrix_world`.
+- [x] Material node graph: diffuse→Base Color, normal→Normal Map, specular→Specular,
+      glow→Emission. Eksik kanal atlanır.
+- [x] `engine_/laserpoint_/light_position` → Empty (PLAIN_AXES) median origin'de,
+      ana body'ye parent (`mesh_to_plain_axes.py` mantığı).
+- [x] Export: `.glb` (varsayılan, texture gömülü) + opsiyonel `.gltf` / `.obj`.
+- [x] Away3D Y-up → Blender Z-up eksen dönüşümü (+90° X).
+- [x] **Doğrulama**: cubikon (küp), sibelon/devolarium/protegit (gemi), kristallon
+      (kristal) doğru render; texture'lar bağlı; glb'de empties node olarak korunuyor.
+      `src/blender/build_scene.py`, `tools/preview_glb.py`.
 
-## Faz 4 — Orkestrasyon & batch
-- [ ] `pipeline.py` CLI: tek mesh / tüm klasör, format bayrakları (`--glb/--gltf/--obj`).
-- [ ] Eksik texture kanalına dayanıklılık.
-- [ ] Hata raporu + log.
-- [ ] **Doğrulama**: 11 mesh'in tamamı tek komutla dönüşür.
+## Faz 4 — Orkestrasyon & batch ✅
+- [x] `python -m src.pipeline <mesh>|--all [--gltf --obj --no-blender]`.
+- [x] ATF decode → PNG, AWD parse → JSON intermediate, Blender headless çağrısı.
+- [x] Eksik texture kanalına dayanıklılık (sadece var olan kanallar bağlanır).
+- [x] **Doğrulama**: 11 mesh'in tamamı tek komutla glb'ye dönüştü (`out/<mesh>/`).
+      Mimari: sistem-Python (numpy/imagecodecs) ↔ Blender (sadece bpy+stdlib) ayrık.
 
 ## Faz 5 — Render scriptleri entegrasyonu (opsiyonel/sonraki)
 - [ ] Mevcut `rotation_animation.py`, `mesh_to_plain_axes.py`, `2d_to_3d_render.py`'i

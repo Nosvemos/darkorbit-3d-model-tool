@@ -215,6 +215,13 @@ def parse(raw: bytes, source: str = "<bytes>") -> Scene:
     referenced_geo = {i.geometry_id for i in scene.instances}
     referenced_mat = {m for i in scene.instances for m in i.material_ids}
 
+    # Synthetic instances inherit the body's transform, not identity: instance
+    # matrices carry a per-model scale (e.g. sibelon's 0.01), so an identity
+    # matrix would leave an orphan geometry ~100x too large and misaligned.
+    body = max((i for i in scene.instances if not i.is_point),
+               key=lambda i: scene.geometries[i.geometry_id].vertex_count, default=None)
+    ref_matrix = list(body.matrix) if body else list(_IDENTITY12)
+
     # Orphan geometries sometimes carry their node name only on a sibling, unused
     # 'null~<name>' material block (no instance was exported). Pair them by nearest
     # block id so e.g. protegit's engine_0 keeps its name instead of 'geometry'.
@@ -229,7 +236,7 @@ def parse(raw: bytes, source: str = "<bytes>") -> Scene:
             name = scene.materials[mid].name[len("null~"):]
             material_ids = [mid]
         scene.instances.append(MeshInstance(
-            name=name, matrix=list(_IDENTITY12), geometry_id=gid,
+            name=name, matrix=list(ref_matrix), geometry_id=gid,
             material_ids=material_ids))
     return scene
 
