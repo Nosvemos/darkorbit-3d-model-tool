@@ -166,8 +166,9 @@ def main():
     sc = bpy.context.scene
     res = cfg["resolution"]
 
+    coord_prefixes = tuple(cfg.get("coord_prefixes", POINT_PREFIXES))
     points = [o for o in sc.objects
-              if o.type == "EMPTY" and o.name.startswith(POINT_PREFIXES)]
+              if o.type == "EMPTY" and o.name.startswith(coord_prefixes)]
     coords = {p.name: [] for p in points}
     frame_paths = []
 

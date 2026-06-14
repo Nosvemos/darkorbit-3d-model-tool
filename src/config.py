@@ -41,6 +41,7 @@ RENDER_DEFAULTS = {
     "cam_fov": 35.0,           # perspective FOV (used when cam_ortho=False)
     "cam_margin": 1.15,        # frame padding factor (>1 zooms out)
 
+    "coord_prefixes": ["engine_", "laserpoint_"],  # which empties go in Coords.json
     "coord_origin": "TOP_LEFT",   # or BOTTOM_LEFT, for the points JSON
     "stable_crop": True,          # crop all frames to one global alpha bbox
     "crop_padding": 4,            # px around the crop
@@ -50,5 +51,8 @@ RENDER_DEFAULTS = {
 CHANNELS = ("diffuse", "normal", "specular", "glow")
 TEXTURE_SUFFIX = "_512"
 
-# Scene-node name prefixes treated as reference points (exported as Empties).
+# Scene-node name prefixes treated as reference points (exported as Empties in glb).
 POINT_PREFIXES = ("engine_", "laserpoint_", "light_position")
+# Subset whose screen positions are tracked into <mesh>_Coords.json.
+# light_position stays an Empty in the glb but is NOT a render coord target.
+COORD_PREFIXES = ("engine_", "laserpoint_")

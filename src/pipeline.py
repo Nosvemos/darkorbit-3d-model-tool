@@ -69,7 +69,9 @@ def build_scene_json(mesh_name: str, out_dir: str) -> str:
         })
 
     data = {"name": mesh_name, "objects": objects}
-    json_path = os.path.join(out_dir, f"{mesh_name}.scene.json")
+    work = os.path.join(out_dir, "work")
+    os.makedirs(work, exist_ok=True)
+    json_path = os.path.join(work, f"{mesh_name}.scene.json")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(data, f)
     return json_path

@@ -81,9 +81,11 @@ def render(mesh_name: str, overrides: dict) -> str:
     if not os.path.exists(glb):
         convert(mesh_name)  # build the glb first
 
+    work = os.path.join(out_dir, "work")
+    os.makedirs(work, exist_ok=True)
     cfg = dict(config.RENDER_DEFAULTS)
     cfg.update(overrides)
-    cfg_path = os.path.join(out_dir, f"{mesh_name}_render_cfg.json")
+    cfg_path = os.path.join(work, f"{mesh_name}_render_cfg.json")
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f)
 
@@ -92,22 +94,23 @@ def render(mesh_name: str, overrides: dict) -> str:
                     config.RENDER_SCRIPT, "--", glb, frames_dir, cfg_path],
                    check=True)
 
-    with open(os.path.join(frames_dir, f"{mesh_name}_render_raw.json"),
-              encoding="utf-8") as f:
+    raw_path = os.path.join(frames_dir, f"{mesh_name}_render_raw.json")
+    with open(raw_path, encoding="utf-8") as f:
         raw = json.load(f)
+    os.remove(raw_path)  # keep frames/ as pure PNGs
 
     coords_path = os.path.join(out_dir, f"{mesh_name}_Coords.json")
     if cfg["stable_crop"]:
         coords, meta = stable_crop(frames_dir, raw, cfg["crop_padding"],
                                    cfg["coord_origin"])
     else:
-        coords = {k: [v if v else "OFF" for v in vals]
-                  for k, vals in raw["points"].items()}
+        coords = {k: [[int(round(v[0])), int(round(v[1]))] if v else "OFF"
+                      for v in vals] for k, vals in raw["points"].items()}
         meta = {"size": [raw["resolution"]] * 2}
     # Coords.json: flat {point_name: [[x, y] | "OFF", ...]} to match the app format
     with open(coords_path, "w", encoding="utf-8") as f:
         json.dump(coords, f, indent=4)
-    with open(os.path.join(out_dir, f"{mesh_name}_meta.json"), "w",
+    with open(os.path.join(work, f"{mesh_name}_meta.json"), "w",
               encoding="utf-8") as f:
         json.dump(meta, f, indent=4)
     return frames_dir
