@@ -140,8 +140,8 @@ def _start_job(fn):
         try:
             job["result"] = fn(prog)
             job["status"] = "done"
-        except Exception as e:
-            job["error"] = str(e)
+        except BaseException as e:   # incl. SystemExit, so failures never hang the job
+            job["error"] = str(e) or e.__class__.__name__
             job["status"] = "error"
 
     threading.Thread(target=run, daemon=True).start()

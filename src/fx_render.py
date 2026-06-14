@@ -30,13 +30,18 @@ def ensure_awp(name: str) -> str:
     zp = os.path.join(config.FX_DIR, f"{name}.zip")
     if os.path.exists(zp):
         os.makedirs(awp_dir, exist_ok=True)
+        extracted = []
         with zipfile.ZipFile(zp) as zf:
             for m in zf.namelist():
                 if m.lower().endswith(".awp"):
-                    with open(os.path.join(awp_dir, os.path.basename(m)), "wb") as f:
+                    dest = os.path.join(awp_dir, os.path.basename(m))
+                    with open(dest, "wb") as f:
                         f.write(zf.read(m))
+                    extracted.append(dest)
         if os.path.exists(path):
             return path
+        if extracted:
+            return extracted[0]  # zip's .awp is named differently than the zip
     raise SystemExit(f"awp not found for '{name}' (looked in fx/awp/ and fx/{name}.zip)")
 
 
@@ -61,6 +66,7 @@ def extract_all() -> tuple[int, int]:
 
 def render(name: str, frames: int, resolution: int, margin: float) -> str:
     effect = awp_mod.load(ensure_awp(name))
+    effect.name = name   # name frames after the request, not the (maybe differing) .awp
     out_dir = os.path.join(config.OUT_DIR, "fx", name, "sprites")
     paths = fx_render.render_effect(effect, out_dir, config.FX_DIR,
                                     config.TEXTURES_DIR, frames=frames,

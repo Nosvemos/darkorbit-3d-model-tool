@@ -259,15 +259,17 @@ async function runRender(){
   busy(true); setStatus("rendering sprites… (Blender)");
   try{
     const r = await runJob("/api/render", Object.assign({name:sel, fx:isFx(), textures:collectTextures()}, collectOpts()));
-    setStatus(`rendered ${r.frames.length} frames ✓`);
-    playFrames(r.frames); showLinks(r);
+    const fr = (r && r.frames) || [];
+    setStatus(`rendered ${fr.length} frames ✓`);
+    playFrames(fr); showLinks(r || {});
   }catch(e){ setStatus("error: "+e.message); } finally{ busy(false); }
 }
 async function runFx(){
   busy(true); setStatus("simulating particles…");
   try{
     const r = await runJob("/api/fx", Object.assign({name:sel}, collectOpts()));
-    setStatus(`rendered ${r.frames.length} frames ✓`); playFrames(r.frames);
+    const fr = (r && r.frames) || [];
+    setStatus(`rendered ${fr.length} frames ✓`); playFrames(fr);
   }catch(e){ setStatus("error: "+e.message); } finally{ busy(false); }
 }
 
