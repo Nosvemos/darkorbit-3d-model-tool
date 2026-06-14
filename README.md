@@ -192,6 +192,25 @@ docs/            format research, architecture, roadmap
 
 ---
 
+## Testing
+
+Unit tests run on synthetic AWD/ATF byte streams, so no game assets are
+required:
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Tests cover the AWD2 parser (both header variants, geometry/instance/material
+decoding, orphan-name recovery, the property-skip regression), the ATF decoder
+(header parsing, DXT1 reconstruction, full encode→decode round-trip), the
+intermediate model, and the render stable-crop / coordinate logic. The Blender
+scripts (which need `bpy`) are syntax-checked rather than executed.
+
+CI runs the suite on Python 3.10–3.12 via GitHub Actions
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+
 ## License
 
 [MIT](LICENSE) © 2026 Samet Ozturk
