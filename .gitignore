@@ -1,0 +1,35 @@
+# --- Asset data (game-owned / large binaries, not for distribution) ---
+meshes/
+textures/
+models/
+out/
+*.awd
+*.atf
+
+# --- Personal Blender scripts ---
+blender_scripts/
+
+# --- Render output ---
+RenderOutput/
+*.png
+*.glb
+*.gltf
+*.obj
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
