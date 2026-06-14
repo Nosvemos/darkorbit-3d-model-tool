@@ -65,15 +65,14 @@ def stable_crop(out_dir: str, raw: dict, padding: int, origin: str) -> dict:
         out = []
         for v in vals:
             if not v:
-                out.append(None)
+                out.append("OFF")
                 continue
             x, y = v[0] - gx1, v[1] - gy1
             if origin == "BOTTOM_LEFT":
                 y = (crop_h - 1) - y
             out.append([int(round(x)), int(round(y))])
         adjusted[name] = out
-    return {"crop": [gx1, gy1, gx2, gy2],
-            "size": [gx2 - gx1, gy2 - gy1], "points": adjusted}
+    return adjusted, {"crop": [gx1, gy1, gx2, gy2], "size": [gx2 - gx1, gy2 - gy1]}
 
 
 def render(mesh_name: str, overrides: dict) -> str:
@@ -99,11 +98,18 @@ def render(mesh_name: str, overrides: dict) -> str:
 
     coords_path = os.path.join(out_dir, f"{mesh_name}_Coords.json")
     if cfg["stable_crop"]:
-        result = stable_crop(frames_dir, raw, cfg["crop_padding"], cfg["coord_origin"])
+        coords, meta = stable_crop(frames_dir, raw, cfg["crop_padding"],
+                                   cfg["coord_origin"])
     else:
-        result = {"size": [raw["resolution"]] * 2, "points": raw["points"]}
+        coords = {k: [v if v else "OFF" for v in vals]
+                  for k, vals in raw["points"].items()}
+        meta = {"size": [raw["resolution"]] * 2}
+    # Coords.json: flat {point_name: [[x, y] | "OFF", ...]} to match the app format
     with open(coords_path, "w", encoding="utf-8") as f:
-        json.dump(result, f, indent=2)
+        json.dump(coords, f, indent=4)
+    with open(os.path.join(out_dir, f"{mesh_name}_meta.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(meta, f, indent=4)
     return frames_dir
 
 
@@ -117,6 +123,8 @@ def main():
     ap.add_argument("--hdri", help="bundled world HDRI, e.g. studio.exr / city.exr")
     ap.add_argument("--elevation", type=float)
     ap.add_argument("--azimuth", type=float)
+    ap.add_argument("--start-angle", type=float, dest="start_angle")
+    ap.add_argument("--emission", type=float, help="glow emission strength")
     ap.add_argument("--persp", action="store_true", help="perspective (default ortho)")
     ap.add_argument("--margin", type=float, help="frame padding factor (>1 zooms out)")
     ap.add_argument("--origin", choices=["TOP_LEFT", "BOTTOM_LEFT"])
@@ -129,6 +137,8 @@ def main():
     if args.hdri: ov["world_hdri"] = args.hdri
     if args.elevation is not None: ov["cam_elevation"] = args.elevation
     if args.azimuth is not None: ov["cam_azimuth"] = args.azimuth
+    if args.start_angle is not None: ov["start_angle"] = args.start_angle
+    if args.emission is not None: ov["emission_strength"] = args.emission
     if args.persp: ov["cam_ortho"] = False
     if args.margin is not None: ov["cam_margin"] = args.margin
     if args.origin: ov["coord_origin"] = args.origin

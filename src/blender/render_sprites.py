@@ -127,6 +127,18 @@ def setup_render(cfg):
         pass
 
 
+def apply_emission(strength):
+    """Override the Emission Strength of every Principled BSDF (glow tuning)."""
+    if strength is None:
+        return
+    for mat in bpy.data.materials:
+        if not mat.use_nodes:
+            continue
+        for node in mat.node_tree.nodes:
+            if node.type == "BSDF_PRINCIPLED" and "Emission Strength" in node.inputs:
+                node.inputs["Emission Strength"].default_value = strength
+
+
 def cam_coord(scene, cam, world_pos, res):
     co = bpy_extras.object_utils.world_to_camera_view(scene, cam, world_pos)
     if co.z < 0 or not (0 <= co.x <= 1 and 0 <= co.y <= 1):
@@ -159,9 +171,12 @@ def main():
     coords = {p.name: [] for p in points}
     frame_paths = []
 
+    apply_emission(cfg.get("emission_strength"))
+
     frames = cfg["frames"]
+    start = cfg.get("start_angle", 0.0)
     for f in range(frames):
-        root.rotation_euler.z = math.radians(f * cfg["deg_per_frame"])
+        root.rotation_euler.z = math.radians(start + f * cfg["deg_per_frame"])
         bpy.context.view_layer.update()
         path = os.path.join(out_dir, f"{name}_{f:03d}.png")
         sc.render.filepath = path

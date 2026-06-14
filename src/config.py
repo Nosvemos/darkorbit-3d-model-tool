@@ -28,13 +28,15 @@ RENDER_DEFAULTS = {
     "film_transparent": True,  # RGBA output on transparent background
 
     "world_hdri": "studio.exr",  # bundled Blender studio light (world env)
-    "world_strength": 1.2,
+    "world_strength": 0.8,
 
-    "sun_energy": 3.0,
+    "sun_energy": 1.5,
     "sun_angle": [50.0, 0.0, 40.0],   # degrees, XYZ euler
+    "emission_strength": 0.6,  # glow/emission map multiplier (lower = subtler)
 
     "cam_elevation": 55.0,     # degrees above horizon (DarkOrbit ~ top-down)
-    "cam_azimuth": 45.0,       # degrees around Z
+    "cam_azimuth": -90.0,      # degrees around Z; -90 puts model +X at screen right
+    "start_angle": 90.0,       # turntable rotation at frame 0 (front faces screen right)
     "cam_ortho": True,         # orthographic (sprite-style) vs perspective
     "cam_fov": 35.0,           # perspective FOV (used when cam_ortho=False)
     "cam_margin": 1.15,        # frame padding factor (>1 zooms out)
