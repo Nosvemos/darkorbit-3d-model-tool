@@ -1,0 +1,4 @@
+# ATF texture decoding + pipeline (Python 3.14)
+Pillow>=10
+numpy>=1.26
+imagecodecs>=2024.1   # JPEG-XR decode for ATF endpoint planes

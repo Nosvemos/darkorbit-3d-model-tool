@@ -7,14 +7,16 @@ uçtan uca çalıştır, sonra toplu işle.
 - [ ] `src/` paket yapısı, `config.py`, `requirements.txt`.
 - [ ] Blender exe yolu tespiti/ayarı.
 
-## Faz 1 — ATF decoder
-- [ ] ATF header tam parse (subformat + mip tablosu).
-- [ ] LZMA blok decompress (stdlib `lzma`; `temp_lzma_*.bin` ile karşılaştır).
-- [ ] BC1/BC3 (DXT1/5) decoder → RGBA.
-- [ ] PNG yazımı.
-- [ ] **Doğrulama**: `cubikon_diffuse_512` çıktısını mevcut `cubikon_diffuse_512.png`
-      ile karşılaştır (pixel/yapı eşleşmesi).
-- [ ] 4 kanalı da (diffuse/normal/specular/glow) batch decode.
+## Faz 1 — ATF decoder ✅
+- [x] ATF header parse (yeni-versiyon offset 12; format/genişlik/yükseklik/mip).
+- [x] Blok yapısı çözüldü: format 2 = DXT1, 2 blok (UI32-BE uzunluk önekli).
+- [x] LZMA blok decompress (raw LZMA, stdlib `lzma` FORMAT_RAW) → DXT1 index'leri.
+- [x] JPEG-XR blok decode (`imagecodecs`) → DXT1 endpoint plane'leri (RGB888, lossy).
+- [x] DXT1 → RGBA decode (numpy vektörize; RGB565 round-trip atlandı, daha iyi kalite).
+- [x] PNG yazımı.
+- [x] **Doğrulama**: 44/44 texture decode; diffuse/normal/glow/specular görsel kontrol
+      doğru (normal map mavi, glow siyah-üstü-emissive). `src/atf/`, `tools/dump_atf.py`.
+      Not: eski referans PNG silinmişti → görsel doğrulama yapıldı.
 
 ## Faz 2 — AWD parser ✅
 - [x] Header + zlib decompress — `AWDc` ve standart `AWD\x02` varyantları (offset 12).
