@@ -56,6 +56,9 @@ def stable_crop(out_dir: str, raw: dict, padding: int, origin: str) -> dict:
 
     gx1, gy1 = _clamp(gx1, 0, res), _clamp(gy1, 0, res)
     gx2, gy2 = _clamp(gx2, 0, res), _clamp(gy2, 0, res)
+    # nothing visible in any frame (e.g. empty render) -> keep the full frame
+    if gx2 <= gx1 or gy2 <= gy1:
+        gx1, gy1, gx2, gy2 = 0, 0, res, res
     crop_h = gy2 - gy1
     for path in paths:
         Image.open(path).convert("RGBA").crop((gx1, gy1, gx2, gy2)).save(path)
@@ -75,11 +78,13 @@ def stable_crop(out_dir: str, raw: dict, padding: int, origin: str) -> dict:
     return adjusted, {"crop": [gx1, gy1, gx2, gy2], "size": [gx2 - gx1, gy2 - gy1]}
 
 
-def render(mesh_name: str, overrides: dict, fx: bool = False) -> str:
+def render(mesh_name: str, overrides: dict, fx: bool = False,
+           textures: dict | None = None) -> str:
     base = config.FX_OUT if fx else config.OUT_DIR
     glb = os.path.join(config.model_dir(mesh_name, base), f"{mesh_name}.glb")
-    if not os.path.exists(glb):
-        convert(mesh_name, fx=fx)  # build the glb first
+    # rebuild the glb if it's missing or the user picked textures manually
+    if textures or not os.path.exists(glb):
+        convert(mesh_name, fx=fx, textures=textures)
 
     work = config.work_dir(mesh_name, base)
     sprites = config.sprites_dir(mesh_name, base)

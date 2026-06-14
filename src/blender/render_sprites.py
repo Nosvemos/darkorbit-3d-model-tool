@@ -102,6 +102,10 @@ def setup_camera(cfg, center, radius):
     dist = radius * 4.0
     cam.location = center + direction * dist
     cam.rotation_euler = (center - cam.location).to_track_quat("-Z", "Y").to_euler()
+    # clip range must span the model regardless of its scale, or large assets
+    # (buildings) fall outside the default 1000-unit clip and render empty.
+    cam_data.clip_start = max(0.01, radius * 0.001)
+    cam_data.clip_end = dist + radius * 4.0 + 1.0
     if cfg["cam_ortho"]:
         cam_data.type = "ORTHO"
         cam_data.ortho_scale = radius * 2.0 * cfg["cam_margin"]

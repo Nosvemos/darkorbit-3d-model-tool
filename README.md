@@ -59,6 +59,7 @@ do3d fx      <name>  [--all] [--frames N] [--resolution PX] [--margin F]
 do3d extract-awp
 do3d list    [meshes|fx|effects|textures|all]
 do3d info    <mesh> [--fx]
+do3d ui      [--host H] [--port P] [--no-browser]
 ```
 
 ```bash
@@ -216,6 +217,8 @@ src/
   pipeline.py    conversion orchestrator
   render.py      mesh turntable render orchestrator
   fx_render.py   particle-effect render orchestrator
+  server.py      local web UI backend (stdlib http.server)
+web/             single-page UI (index.html)
 tools/           standalone inspection/preview helpers
 docs/            format research, architecture, roadmap
 ```
@@ -234,6 +237,31 @@ docs/            format research, architecture, roadmap
 | [`docs/05_open_questions.md`](docs/05_open_questions.md) | Resolved decisions & open questions |
 
 ---
+
+## Web UI
+
+A minimal local web UI (Python stdlib `http.server` + a single vanilla-JS page —
+no framework, no build step):
+
+```bash
+do3d ui            # serves http://127.0.0.1:8765 and opens the browser
+```
+
+Browse meshes / fx meshes / effects in the sidebar, inspect an asset (objects,
+reference points, clips, textures), then convert to glb or render sprites /
+particle effects right from the page. Rendered turntables play back inline as an
+animated preview, with download links for the glb and `Coords.json`. It calls the
+same functions as the CLI, so anything the UI does is reproducible on the command
+line.
+
+**Manual textures.** Auto-detection maps `<mesh>_<channel>_512.atf` by filename;
+when an asset doesn't follow that convention (many `fx_*.awd` meshes, or oddly
+named ones), the UI's per-channel texture fields let you pick any `.atf` by name
+(auto-completed from every texture in `textures/` and `fx/`). Picked textures
+override the auto-detected ones per channel and rebuild the glb. On the CLI the
+same is available by passing a `textures` dict to `pipeline.convert` /
+`render.render`. (Particle effects carry their textures inside the `.awp`, so
+they are resolved automatically.)
 
 ## FX / particle assets
 

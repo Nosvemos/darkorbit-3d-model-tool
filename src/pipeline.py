@@ -34,19 +34,50 @@ def _find_texture(textures_dir: str, mesh_name: str, channel: str) -> str | None
     return None
 
 
-def decode_textures(mesh_name: str, textures_dir: str, model_out: str) -> dict[str, str]:
-    """Decode each available channel ATF to PNG; return {channel: png_path}."""
-    tex_out = os.path.join(model_out, "textures")
-    os.makedirs(tex_out, exist_ok=True)
-    found: dict[str, str] = {}
+def _resolve_atf(spec: str, dirs: list[str]) -> str | None:
+    """Resolve a user-supplied ATF name (basename, with/without .atf) to a path."""
+    base = spec[:-4] if spec.lower().endswith(".atf") else spec
+    for d in dirs:
+        p = os.path.join(d, base + ".atf")
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def detect_textures(mesh_name: str, textures_dir: str) -> dict[str, str]:
+    """Auto-detected {channel: atf_basename} for a mesh (for UI pre-fill)."""
+    out = {}
     for channel in config.CHANNELS:
         atf = _find_texture(textures_dir, mesh_name, channel)
         if atf:
+            out[channel] = os.path.splitext(os.path.basename(atf))[0]
+    return out
+
+
+def decode_textures(mesh_name: str, textures_dir: str, model_out: str,
+                    overrides: dict | None = None) -> dict[str, str]:
+    """Decode each channel ATF to PNG; return {channel: png_path}.
+
+    `overrides` maps a channel -> an ATF basename chosen manually (UI); it takes
+    precedence over the filename-convention auto-detection, per channel.
+    """
+    overrides = overrides or {}
+    tex_out = os.path.join(model_out, "textures")
+    os.makedirs(tex_out, exist_ok=True)
+    search = [textures_dir, config.TEXTURES_DIR, config.FX_DIR]
+    found: dict[str, str] = {}
+    for channel in config.CHANNELS:
+        atf = _resolve_atf(overrides[channel], search) if overrides.get(channel) \
+            else _find_texture(textures_dir, mesh_name, channel)
+        if atf:
             png = os.path.join(tex_out, f"{mesh_name}_{channel}.png")
-            atf_to_png(atf, png)
-            found[channel] = png
-    # fx meshes have no channel convention; fall back to a single <mesh>.atf as diffuse
-    if not found:
+            try:
+                atf_to_png(atf, png)
+                found[channel] = png
+            except Exception:
+                pass
+    # fx meshes have no channel convention; fall back to a single <mesh>.atf
+    if not found and not overrides:
         single = os.path.join(textures_dir, f"{mesh_name}.atf")
         if os.path.exists(single):
             png = os.path.join(tex_out, f"{mesh_name}_diffuse.png")
@@ -59,10 +90,10 @@ def decode_textures(mesh_name: str, textures_dir: str, model_out: str) -> dict[s
 
 
 def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
-                     model_out: str, work: str) -> str:
+                     model_out: str, work: str, textures: dict | None = None) -> str:
     """Parse the AWD and write the intermediate scene JSON. Returns its path."""
     scene = parse_file(os.path.join(meshes_dir, f"{mesh_name}.awd"))
-    textures = decode_textures(mesh_name, textures_dir, model_out)
+    textures = decode_textures(mesh_name, textures_dir, model_out, overrides=textures)
 
     objects = []
     for inst in scene.instances:
@@ -111,14 +142,15 @@ def run_blender(scene_json: str, out_glb: str, gltf: bool, obj: bool) -> None:
 
 
 def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
-            run: bool = True, fx: bool = False) -> str:
+            run: bool = True, fx: bool = False, textures: dict | None = None) -> str:
     meshes_dir = config.FX_DIR if fx else config.MESHES_DIR
     textures_dir = config.FX_DIR if fx else config.TEXTURES_DIR
     out_base = config.FX_OUT if fx else config.OUT_DIR
     model = config.model_dir(mesh_name, out_base)
     work = config.work_dir(mesh_name, out_base)
     os.makedirs(model, exist_ok=True)
-    scene_json = build_scene_json(mesh_name, meshes_dir, textures_dir, model, work)
+    scene_json = build_scene_json(mesh_name, meshes_dir, textures_dir, model, work,
+                                  textures=textures)
     out_glb = os.path.join(model, f"{mesh_name}.glb")
     if run:
         run_blender(scene_json, out_glb, gltf, obj)

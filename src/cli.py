@@ -90,6 +90,11 @@ def cmd_list(args):
             print(f"  {n}")
 
 
+def cmd_ui(args):
+    from src import server
+    server.serve(host=args.host, port=args.port, open_browser=not args.no_browser)
+
+
 def cmd_info(args):
     src = config.FX_DIR if args.fx else config.MESHES_DIR
     path = os.path.join(src, f"{args.mesh}.awd")
@@ -155,6 +160,12 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("mesh")
     i.add_argument("--fx", action="store_true")
     i.set_defaults(func=cmd_info)
+
+    u = sub.add_parser("ui", help="launch the local web UI")
+    u.add_argument("--host", default="127.0.0.1")
+    u.add_argument("--port", type=int, default=8765)
+    u.add_argument("--no-browser", action="store_true")
+    u.set_defaults(func=cmd_ui)
     return ap
 
 

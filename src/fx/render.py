@@ -167,6 +167,9 @@ def _composite(canvas, sprite_rgba, cx, cy, additive):
 def render_effect(effect: awp.Effect, out_dir: str, fx_dir: str, textures_dir: str,
                   frames: int = 30, resolution: int = 256, margin: float = 1.2):
     os.makedirs(out_dir, exist_ok=True)
+    import glob
+    for old in glob.glob(os.path.join(out_dir, f"{effect.name}_*.png")):
+        os.remove(old)  # clear stale frames so the set matches this run
     tex = TextureCache(fx_dir, textures_dir)
     sim = [( layer, _build_particles(layer, i), _layer_transform(layer))
            for i, layer in enumerate(effect.layers)]

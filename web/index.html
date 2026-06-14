@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DarkOrbit 3D Tool</title>
+<style>
+  :root { --bg:#15171c; --panel:#1d2026; --panel2:#23272f; --line:#2e333d;
+          --fg:#d6d9df; --mut:#8b909a; --acc:#ff7a18; --acc2:#39b0ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
+  header { padding:12px 18px; border-bottom:1px solid var(--line);
+           font-weight:600; letter-spacing:.3px; }
+  header span { color:var(--acc); }
+  .wrap { display:flex; height:calc(100vh - 49px); }
+  aside { width:280px; border-right:1px solid var(--line); display:flex;
+          flex-direction:column; background:var(--panel); }
+  .tabs { display:flex; }
+  .tabs button { flex:1; background:none; border:none; color:var(--mut);
+                 padding:10px 0; cursor:pointer; border-bottom:2px solid transparent; }
+  .tabs button.on { color:var(--fg); border-bottom-color:var(--acc); }
+  #search { margin:8px; padding:7px 9px; background:var(--panel2);
+            border:1px solid var(--line); color:var(--fg); border-radius:6px; }
+  #list { overflow:auto; flex:1; }
+  #list div { padding:6px 14px; cursor:pointer; color:var(--mut);
+              white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #list div:hover { background:var(--panel2); }
+  #list div.on { background:var(--panel2); color:var(--acc2);
+                 border-left:3px solid var(--acc2); padding-left:11px; }
+  main { flex:1; overflow:auto; padding:18px 22px; }
+  h2 { margin:0 0 4px; }
+  .mut { color:var(--mut); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+          padding:14px 16px; margin:14px 0; }
+  .row { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; }
+  label { display:flex; flex-direction:column; gap:4px; font-size:12px;
+          color:var(--mut); }
+  input, select { background:var(--panel2); border:1px solid var(--line);
+                  color:var(--fg); border-radius:6px; padding:6px 8px; }
+  input[type=number] { width:90px; }
+  button.act { background:var(--acc); color:#160d04; border:none; font-weight:600;
+               padding:8px 16px; border-radius:6px; cursor:pointer; }
+  button.act.alt { background:var(--acc2); color:#04121c; }
+  button.act:disabled { opacity:.5; cursor:default; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  td,th { text-align:left; padding:3px 10px 3px 0; }
+  th { color:var(--mut); font-weight:500; }
+  .pt { color:var(--acc2); }
+  #status { color:var(--mut); min-height:20px; }
+  #stage { display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start; }
+  #viewer { background:#0d0f13 url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="10" height="10" fill="%23191b20"/><rect x="10" y="10" width="10" height="10" fill="%23191b20"/></svg>');
+            border:1px solid var(--line); border-radius:8px; width:340px; height:340px;
+            display:flex; align-items:center; justify-content:center; }
+  #viewer img { max-width:100%; max-height:100%; image-rendering:auto; }
+  .links a { color:var(--acc2); margin-right:14px; }
+  .pill { font-size:11px; background:var(--panel2); border:1px solid var(--line);
+          padding:2px 8px; border-radius:20px; color:var(--mut); }
+  header { background:linear-gradient(90deg,#1d2026,#15171c); }
+  .card { box-shadow:0 1px 0 #00000022; }
+  button.act:hover { filter:brightness(1.08); }
+  details summary { cursor:pointer; color:var(--acc2); font-size:13px;
+                    user-select:none; outline:none; }
+  details[open] summary { margin-bottom:2px; }
+  label.chk { flex-direction:row; align-items:center; gap:6px; color:var(--fg);
+              font-size:13px; }
+  input[type=range] { accent-color:var(--acc); }
+  #list::-webkit-scrollbar, main::-webkit-scrollbar { width:9px; }
+  #list::-webkit-scrollbar-thumb, main::-webkit-scrollbar-thumb {
+    background:var(--line); border-radius:6px; }
+</style>
+</head>
+<body>
+<header>DarkOrbit <span>3D</span> Tool</header>
+<datalist id="atflist"></datalist>
+<div class="wrap">
+  <aside>
+    <div class="tabs">
+      <button data-kind="meshes" class="on">Meshes</button>
+      <button data-kind="fx">FX Meshes</button>
+      <button data-kind="effects">Effects</button>
+    </div>
+    <input id="search" placeholder="filter…">
+    <div id="list"></div>
+  </aside>
+  <main>
+    <div id="empty" class="mut">Select an asset on the left.</div>
+    <div id="detail" style="display:none">
+      <h2 id="title"></h2>
+      <div id="meta" class="mut"></div>
+
+      <div class="card" id="info"></div>
+
+      <div class="card" id="actions"></div>
+
+      <div class="card">
+        <div id="status">Ready.</div>
+        <div id="stage" style="margin-top:12px">
+          <div id="viewer"><span class="mut">no preview yet</span></div>
+          <div>
+            <div class="row" style="margin-bottom:8px">
+              <button class="act alt" id="play">⏸ Pause</button>
+              <label>Frame <input type="range" id="scrub" min="0" value="0"></label>
+              <label>Speed <input type="range" id="speed" min="20" max="200" value="80"></label>
+              <span id="fcount" class="pill"></span>
+            </div>
+            <div class="links" id="links"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+let kind = "meshes", sel = null, items = [];
+let frames = [], fi = 0, timer = null;
+
+const isFx = () => kind === "fx";
+const isEffect = () => kind === "effects";
+
+async function jget(u){ const r = await fetch(u); if(!r.ok) throw new Error((await r.json()).error||r.status); return r.json(); }
+async function jpost(u,b){ const r = await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}); if(!r.ok) throw new Error((await r.json()).error||r.status); return r.json(); }
+
+async function loadList(){
+  const d = await jget("/api/list?kind="+kind);
+  items = d.items; renderList();
+}
+function renderList(){
+  const f = $("#search").value.toLowerCase();
+  const box = $("#list"); box.innerHTML = "";
+  items.filter(n=>n.toLowerCase().includes(f)).forEach(n=>{
+    const el = document.createElement("div");
+    el.textContent = n; el.className = (n===sel?"on":"");
+    el.onclick = ()=>select(n); box.appendChild(el);
+  });
+}
+function setStatus(t){ $("#status").textContent = t; }
+
+async function select(name){
+  sel = name; renderList();
+  $("#empty").style.display="none"; $("#detail").style.display="block";
+  $("#title").textContent = name;
+  $("#meta").textContent = kind==="meshes"?"mesh":kind==="fx"?"fx mesh":"particle effect";
+  stopAnim(); frames=[]; $("#viewer").innerHTML='<span class="mut">no preview yet</span>';
+  $("#links").innerHTML=""; $("#fcount").textContent="";
+  renderActions();
+  if(isEffect()){ $("#info").innerHTML='<span class="mut">Away3D particle effect — render to preview the sprite sequence.</span>'; return; }
+  $("#info").innerHTML='<span class="mut">loading…</span>';
+  try{
+    const i = await jget(`/api/info?name=${encodeURIComponent(name)}&fx=${isFx()?1:0}`);
+    let rows = i.objects.map(o=>`<tr><td>${o.name}${o.point?' <span class="pt">●point</span>':''}</td><td>${o.verts}v</td><td>${o.tris}t</td></tr>`).join("");
+    const detected = Object.keys(i.textures||{});
+    $("#info").innerHTML = `<table><tr><th>object</th><th>verts</th><th>tris</th></tr>${rows}</table>
+      <div class="mut" style="margin-top:8px">auto textures: ${detected.join(", ")||"none"} · clips: ${i.clips.join(", ")||"none"}</div>`;
+    // pre-fill the manual texture inputs with whatever was auto-detected
+    Object.entries(i.textures||{}).forEach(([c,n])=>{
+      const el = document.querySelector(`#actions .tex[data-ch="${c}"]`); if(el) el.value = n;
+    });
+  }catch(e){ $("#info").innerHTML = `<span class="mut">info error: ${e.message}</span>`; }
+}
+
+const HDRIS = ["studio","city","courtyard","forest","interior","night","sunrise","sunset"];
+const num = (k,v,step="") => `<label>${k.label}<input type="number" class="opt" data-key="${k.key}" value="${v}"${step?` step="${step}"`:""}></label>`;
+
+function renderActions(){
+  const a = $("#actions");
+  if(isEffect()){
+    a.innerHTML = `<div class="row">
+      ${num({label:"frames",key:"frames"},30)}
+      ${num({label:"resolution",key:"resolution"},256)}
+      ${num({label:"margin",key:"margin"},1.2,"0.05")}
+      <button class="act" id="b_fx">Render Effect</button></div>`;
+    $("#b_fx").onclick = runFx;
+    return;
+  }
+  a.innerHTML = `<div class="row">
+      <label>mode<select class="opt" data-key="mode"><option>auto</option><option>ship</option><option>item</option></select></label>
+      ${num({label:"frames",key:"frames"},72)}
+      ${num({label:"resolution",key:"resolution"},256)}
+      <label>lighting<select class="opt" data-key="world_hdri">${HDRIS.map(h=>`<option value="${h}.exr">${h}</option>`).join("")}</select></label>
+      <button class="act" id="b_render">Render Sprites</button>
+    </div>
+    <div style="margin-top:12px">
+      <div class="mut" style="font-size:12px;margin-bottom:6px">Textures (.atf — leave blank for auto)</div>
+      <div class="row">
+        ${["diffuse","normal","specular","glow"].map(c=>`<label>${c}<input class="tex" data-ch="${c}" list="atflist" placeholder="(auto)"></label>`).join("")}
+      </div>
+    </div>
+    <details style="margin-top:10px">
+      <summary>Advanced</summary>
+      <div class="row" style="margin-top:10px">
+        ${num({label:"elevation°",key:"cam_elevation"},55)}
+        ${num({label:"azimuth°",key:"cam_azimuth"},-90)}
+        ${num({label:"start angle°",key:"start_angle"},90)}
+        ${num({label:"total°",key:"total_degrees"},360)}
+        ${num({label:"margin",key:"cam_margin"},1.15,"0.05")}
+        ${num({label:"samples",key:"samples"},96)}
+        ${num({label:"emission",key:"emission_strength"},0.6,"0.1")}
+        <label>view<select class="opt" data-key="view_transform"><option>Standard</option><option>AgX</option><option>Filmic</option></select></label>
+        <label class="chk"><input type="checkbox" class="optbool" data-key="cam_ortho" data-invert="1" checked> orthographic</label>
+      </div>
+    </details>
+    <div class="row" style="margin-top:12px">
+      <label class="chk"><input type="checkbox" id="o_gltf"> .gltf</label>
+      <label class="chk"><input type="checkbox" id="o_obj"> .obj</label>
+      <button class="act alt" id="b_convert">Convert to glb</button>
+    </div>`;
+  $("#b_render").onclick = runRender;
+  $("#b_convert").onclick = runConvert;
+}
+
+// gather every .opt / .optbool input in the actions panel into an override dict
+function collectOpts(){
+  const o = {};
+  document.querySelectorAll("#actions .opt").forEach(el=>{
+    if(el.value==="") return;
+    o[el.dataset.key] = el.type==="number" ? +el.value : el.value;
+  });
+  document.querySelectorAll("#actions .optbool").forEach(el=>{
+    o[el.dataset.key] = el.dataset.invert ? el.checked : !el.checked;
+  });
+  return o;
+}
+// manual texture overrides: {channel: atf-name} for any filled .tex input
+function collectTextures(){
+  const t = {};
+  document.querySelectorAll("#actions .tex").forEach(el=>{
+    if(el.value.trim()) t[el.dataset.ch] = el.value.trim();
+  });
+  return t;
+}
+
+function busy(b){ document.querySelectorAll("#actions button").forEach(x=>x.disabled=b); }
+
+async function runConvert(){
+  busy(true); setStatus("converting… (Blender)");
+  try{
+    const r = await jpost("/api/convert",{name:sel, fx:isFx(), gltf:$("#o_gltf").checked, obj:$("#o_obj").checked, textures:collectTextures()});
+    setStatus("converted ✓"); showLinks({glb:r.glb});
+  }catch(e){ setStatus("error: "+e.message); } finally{ busy(false); }
+}
+async function runRender(){
+  busy(true); setStatus("rendering sprites… (Blender)");
+  try{
+    const r = await jpost("/api/render", Object.assign({name:sel, fx:isFx(), textures:collectTextures()}, collectOpts()));
+    setStatus(`rendered ${r.frames.length} frames ✓`);
+    playFrames(r.frames); showLinks(r);
+  }catch(e){ setStatus("error: "+e.message); } finally{ busy(false); }
+}
+async function runFx(){
+  busy(true); setStatus("simulating particles…");
+  try{
+    const r = await jpost("/api/fx", Object.assign({name:sel}, collectOpts()));
+    setStatus(`rendered ${r.frames.length} frames ✓`); playFrames(r.frames);
+  }catch(e){ setStatus("error: "+e.message); } finally{ busy(false); }
+}
+
+function showLinks(r){
+  const l = $("#links"); l.innerHTML="";
+  if(r.glb) l.innerHTML += `<a href="${r.glb}" download>⬇ glb</a>`;
+  if(r.coords) l.innerHTML += `<a href="${r.coords}" target="_blank">Coords.json</a>`;
+}
+function stopAnim(){ if(timer){ clearInterval(timer); timer=null; } }
+function playFrames(fr){
+  frames = fr; fi = 0;
+  $("#scrub").max = Math.max(0, fr.length-1); $("#scrub").value = 0;
+  $("#fcount").textContent = fr.length+" frames";
+  if(!fr.length){ $("#viewer").innerHTML='<span class="mut">no frames</span>'; return; }
+  $("#viewer").innerHTML = `<img id="frame" src="${fr[0]}">`;
+  startAnim();
+}
+function startAnim(){
+  stopAnim(); $("#play").textContent="⏸ Pause";
+  const ms = +$("#speed").value;
+  timer = setInterval(()=>{ fi=(fi+1)%frames.length; show(fi); }, ms);
+}
+function show(i){ fi=i; $("#frame").src=frames[i]; $("#scrub").value=i; }
+
+$("#play").onclick = ()=>{ if(timer){ stopAnim(); $("#play").textContent="▶ Play"; } else startAnim(); };
+$("#scrub").oninput = e=>{ if(frames.length){ stopAnim(); $("#play").textContent="▶ Play"; show(+e.target.value); } };
+$("#speed").oninput = ()=>{ if(timer) startAnim(); };
+$("#search").oninput = renderList;
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll(".tabs button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); kind=b.dataset.kind; sel=null;
+  $("#empty").style.display="block"; $("#detail").style.display="none";
+  loadList();
+});
+async function loadTextures(){
+  try{ const d = await jget("/api/textures");
+    $("#atflist").innerHTML = d.items.map(n=>`<option value="${n}">`).join(""); }
+  catch(e){}
+}
+loadList(); loadTextures();
+</script>
+</body>
+</html>

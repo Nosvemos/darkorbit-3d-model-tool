@@ -15,6 +15,8 @@ def test_subcommand_dispatch():
     assert a.what == "all"
     a = ap.parse_args(["fx", "explosion0", "--frames", "12"])
     assert a.name == "explosion0" and a.frames == 12
+    a = ap.parse_args(["ui", "--port", "9001", "--no-browser"])
+    assert a.command == "ui" and a.port == 9001 and a.no_browser
 
 
 def test_command_required():
