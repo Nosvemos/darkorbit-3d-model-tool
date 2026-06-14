@@ -139,6 +139,17 @@ def setup_render(cfg):
             pass
 
 
+def animation_end():
+    """Last keyframe of any imported shape-key (morph) animation, else 1."""
+    end = 1.0
+    for ob in bpy.context.scene.objects:
+        sk = getattr(ob.data, "shape_keys", None)
+        ad = sk.animation_data if sk else None
+        if ad and ad.action:
+            end = max(end, ad.action.frame_range[1])
+    return end
+
+
 def apply_emission(strength):
     """Override the Emission Strength of every Principled BSDF (glow tuning)."""
     if strength is None:
@@ -190,6 +201,7 @@ def main():
     frame_paths = []
 
     apply_emission(cfg.get("emission_strength"))
+    anim_end = animation_end()   # >1 if the glb carries a vertex (morph) animation
 
     frames = cfg["frames"]
     start = cfg.get("start_angle", 0.0)
@@ -200,6 +212,10 @@ def main():
     frame_start = cfg.get("frame_start", 1)
     for f in range(frames):
         root.rotation_euler.z = math.radians(start + f * step)
+        # play the morph animation across the render frames (alongside the turntable)
+        if anim_end > 1:
+            af = 1.0 + (anim_end - 1.0) * (f / max(frames - 1, 1))
+            sc.frame_set(int(af), subframe=af - int(af))
         bpy.context.view_layer.update()
         fname = f"{name}_{frame_start + f}.png"
         path = os.path.join(out_dir, fname)
