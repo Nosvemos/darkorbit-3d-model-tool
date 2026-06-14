@@ -109,12 +109,16 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
             indices += [base + i for i in sub.indices]
             uvs += sub.uvs if sub.uvs else [0.0] * (sub.vertex_count * 2)
         is_point = inst.is_point
-        # vertex-animation pose frames whose target geometry is this instance's
-        # (and whose vertex count matches the merged mesh) -> morph targets.
-        # `clip` limits it to one named clip; otherwise all clips are concatenated.
-        morphs = [fr for c in scene.clips
-                  if c.geometry_id == inst.geometry_id and (not clip or c.name == clip)
-                  for fr in c.frames if len(fr) == len(positions)]
+        # vertex-animation clips targeting this instance's geometry -> each becomes
+        # its own named glTF animation (morph targets). `clip` limits to one clip;
+        # otherwise every matching clip is exported separately.
+        clips_out = []
+        for c in scene.clips:
+            if c.geometry_id != inst.geometry_id or (clip and c.name != clip):
+                continue
+            frames = [fr for fr in c.frames if len(fr) == len(positions)]
+            if frames:
+                clips_out.append({"name": c.name, "frames": frames})
         objects.append({
             "name": inst.name,
             "matrix": _matrix16(inst),
@@ -123,7 +127,7 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
             "uvs": uvs,
             # points become empties and need no textures; body meshes share the set
             "textures": {} if is_point else textures,
-            "morphs": morphs,
+            "clips": clips_out,
         })
 
     data = {"name": mesh_name, "objects": objects}

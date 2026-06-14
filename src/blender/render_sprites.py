@@ -140,14 +140,34 @@ def setup_render(cfg):
 
 
 def animation_end():
-    """Last keyframe of any imported shape-key (morph) animation, else 1."""
+    """Last frame of any imported shape-key (morph) animation, else 1.
+
+    Covers both an active action and NLA strips (clips are imported as NLA tracks)."""
     end = 1.0
     for ob in bpy.context.scene.objects:
         sk = getattr(ob.data, "shape_keys", None)
         ad = sk.animation_data if sk else None
-        if ad and ad.action:
+        if not ad:
+            continue
+        if ad.action:
             end = max(end, ad.action.frame_range[1])
+        for tr in ad.nla_tracks:
+            if tr.mute:
+                continue
+            for st in tr.strips:
+                end = max(end, st.frame_end)
     return end
+
+
+def solo_first_clip():
+    """When a model carries several clips (NLA tracks), play only the first so
+    the turntable shows one clean animation instead of all clips blended."""
+    for ob in bpy.context.scene.objects:
+        sk = getattr(ob.data, "shape_keys", None)
+        ad = sk.animation_data if sk else None
+        if ad and len(ad.nla_tracks) > 1:
+            for i, tr in enumerate(ad.nla_tracks):
+                tr.mute = (i != 0)
 
 
 def apply_emission(strength):
@@ -201,6 +221,7 @@ def main():
     frame_paths = []
 
     apply_emission(cfg.get("emission_strength"))
+    solo_first_clip()
     anim_end = animation_end()   # >1 if the glb carries a vertex (morph) animation
 
     frames = cfg["frames"]

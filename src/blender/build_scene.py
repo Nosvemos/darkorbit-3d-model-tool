@@ -56,31 +56,51 @@ def build_mesh(obj):
     ob = bpy.data.objects.new(obj["name"], mesh)
     bpy.context.scene.collection.objects.link(ob)
     ob.matrix_world = AXIS_CONV @ make_matrix(obj["matrix"])
-    _add_morphs(ob, obj.get("morphs") or [])
+    _add_clips(ob, obj.get("clips") or [])
     return ob
 
 
-def _add_morphs(ob, frames):
-    """Add one shape key per pose frame and keyframe them so the mesh plays the
-    vertex animation (exported by glTF as morph-target weight animation)."""
-    if not frames:
-        return
-    ob.shape_key_add(name="basis", from_mix=False)
-    keys = []
-    for fi, frame in enumerate(frames):
-        key = ob.shape_key_add(name=f"pose{fi}", from_mix=False)
-        for v in range(len(key.data)):
-            key.data[v].co = (frame[v * 3], frame[v * 3 + 1], frame[v * 3 + 2])
-        keys.append(key)
-    # play through the poses: pose i is fully on at frame i+1, off on either side
-    scene = bpy.context.scene
-    scene.frame_start = 1
-    scene.frame_end = max(2, len(keys))
+def _clip_keyframes(keys):
+    """Keyframe a clip's shape keys so pose i is fully on at frame i+1 (crossfading
+    between consecutive poses). Goes into the Key's currently-active action."""
     for i, key in enumerate(keys):
         for f, val in ((i, 0.0), (i + 1, 1.0), (i + 2, 0.0)):
             if 1 <= f <= len(keys):
                 key.value = val
                 key.keyframe_insert("value", frame=f)
+
+
+def _add_clips(ob, clips):
+    """Add shape keys for every pose and build one named action per clip, so the
+    glTF export emits a separate named animation (e.g. 'open', 'close')."""
+    if not clips:
+        return
+    ob.shape_key_add(name="basis", from_mix=False)
+    groups = []
+    for clip in clips:
+        keys = []
+        for fi, frame in enumerate(clip["frames"]):
+            key = ob.shape_key_add(name=f"{clip['name']}_{fi}", from_mix=False)
+            for v in range(len(key.data)):
+                key.data[v].co = (frame[v * 3], frame[v * 3 + 1], frame[v * 3 + 2])
+            keys.append(key)
+        groups.append((clip["name"], keys))
+
+    keyblock = ob.data.shape_keys
+    ad = keyblock.animation_data_create()
+    longest = max(len(k) for _, k in groups)
+    bpy.context.scene.frame_start = 1
+    bpy.context.scene.frame_end = max(2, longest)
+    # each clip -> its own action on its own NLA track, so the glTF NLA_TRACKS
+    # export emits one named animation per clip (e.g. 'open', 'close')
+    for name, keys in groups:
+        action = bpy.data.actions.new(name)
+        ad.action = action
+        _clip_keyframes(keys)
+        track = ad.nla_tracks.new()
+        track.name = name
+        track.strips.new(name, 1, action)
+        ad.action = None
 
 
 def load_image(path, non_color=False):
@@ -183,7 +203,8 @@ def main():
     os.makedirs(base, exist_ok=True)
     bpy.ops.export_scene.gltf(filepath=out_glb, export_format="GLB",
                               export_yup=True, use_visible=True,
-                              export_morph=True, export_animations=True)
+                              export_morph=True, export_animations=True,
+                              export_animation_mode="NLA_TRACKS")
     if want_gltf:
         d = os.path.join(base, "gltf")
         os.makedirs(d, exist_ok=True)

@@ -13,13 +13,14 @@ rendering and animation.
 
 ## Features
 
-- **ATF → PNG** — pure-Python decoder for the ATF formats in use: DXT1 (2) and
-  DXT5 (4) via LZMA indices + JPEG-XR endpoints, plus raw RGB/RGBA (0/1).
+- **ATF → PNG** — pure-Python decoder for every ATF format in the asset set:
+  DXT1 (2) and DXT5 (4) via LZMA indices + JPEG-XR endpoints, raw RGB/RGBA (0/1),
+  and raw DXT5 (5).
 - **AWD → mesh** — pure-Python AWD2 parser: geometry, scene-graph instances with
   names and transforms, materials, and vertex (pose) animation clips.
 - **glb / gltf / obj export** — built in Blender headless, with PBR materials
-  wired from the diffuse / normal / specular / glow channels. Vertex animations
-  are exported as glTF morph targets with weight animation.
+  wired from the diffuse / normal / specular / glow channels. Each vertex
+  animation clip is exported as its own named glTF animation (morph targets).
 - **Reference points preserved** — `engine_*` / `laserpoint_*` / `light_position`
   nodes are exported as Empties parented to the main body.
 - **Turntable sprite renderer** — headless, reproducible lighting, any frame
@@ -298,8 +299,9 @@ python tools/extract_awp.py        # unpack every fx/*.zip into fx/awp/ and vali
 | `--margin F` | 1.2 | Canvas padding factor. |
 
 Supported particle nodes: time, position, velocity, acceleration, scale,
-segmented/initial colour, rotation, billboard, orbit, oscillator, and
-sprite-sheet (flip-book) animation. (UV scroll and follow are treated as no-ops.)
+segmented/initial colour, rotation, billboard, orbit, oscillator, sprite-sheet
+(flip-book), and UV scroll. (Follow is a no-op in standalone playback, since the
+emitter is fixed at the origin.)
 
 The plain `fx_*.awd` meshes in `fx/` (rings, spheres, shards, …) convert and
 render with the `--fx` flag, which sources both meshes and textures from `fx/`
