@@ -32,8 +32,9 @@ T_ROT2HEAD = "ParticleRotateToHeadingNodeSubParser"
 T_ORBIT = "ParticleOrbitNodeSubParser"
 T_OSC = "ParticleOscillatorNodeSubParser"
 T_SHEET = "ParticleSpriteSheetNodeSubParser"
-# ParticleUVNode (texture scroll) and ParticleFollowNode (follows a static emitter)
-# have negligible effect for a single, origin-anchored playback -> treated as no-ops.
+T_UV = "ParticleUVNodeSubParser"
+# ParticleFollowNode follows the emitter; in standalone playback the emitter is
+# fixed at the origin, so it has no displacement -> correctly a no-op here.
 
 TWO_PI = 2.0 * math.pi
 
@@ -163,7 +164,14 @@ def _state(p: Particle, layer, inst, t):
         angle = math.degrees(math.atan2(p.vel[1], p.vel[0]))
     else:
         angle = math.degrees(p.rot_speed * age) + inst_rot
-    return x, y, s * inst_scale[0], s * inst_scale[1], color, angle, life
+
+    # UV scroll: texture slides along an axis over the particle's life
+    uv = None
+    uvd = layer.nodes.get(T_UV)
+    if uvd:
+        cyc = awp.sample1d(uvd.get("cycle"), random)
+        uv = (uvd.get("axis", "x"), (cyc * age) % 1.0)
+    return x, y, s * inst_scale[0], s * inst_scale[1], color, angle, life, uv
 
 
 class TextureCache:
@@ -253,13 +261,17 @@ def render_effect(effect: awp.Effect, out_dir: str, fx_dir: str, textures_dir: s
                 st = _state(p, layer, inst, t)
                 if not st:
                     continue
-                x, y, sx, sy, color, angle, life = st
+                x, y, sx, sy, color, angle, life, uv = st
                 w_px = max(1, int(layer.geom_w * sx * scale))
                 h_px = max(1, int(layer.geom_h * sy * scale))
                 if w_px > 4 * resolution or h_px > 4 * resolution:
                     continue
-                cell = _sheet_cell(base, sheet, life)
-                spr = (cell or base).resize((w_px, h_px), Image.BILINEAR)
+                src = _sheet_cell(base, sheet, life) or base
+                if uv and uv[1]:
+                    a = np.asarray(src)
+                    ax = 1 if uv[0] == "x" else 0
+                    src = Image.fromarray(np.roll(a, int(uv[1] * a.shape[ax]), axis=ax))
+                spr = src.resize((w_px, h_px), Image.BILINEAR)
                 arr = np.asarray(spr, np.float32) / 255.0
                 arr = arr * np.array(color, np.float32)        # colour multiplier
                 spr = Image.fromarray(np.clip(arr * 255, 0, 255).astype(np.uint8), "RGBA")
