@@ -132,14 +132,58 @@ def _decode_alpha(alpha_ep: np.ndarray, index_bytes: bytes,
     return px.reshape(height, width).astype(np.uint8)
 
 
+def _rgb565(c: int):
+    return (((c >> 11) & 31) * 255 // 31, ((c >> 5) & 63) * 255 // 63,
+            (c & 31) * 255 // 31)
+
+
+def _decode_dxt5_raw(data: bytes, width: int, height: int) -> np.ndarray:
+    """Standard (interleaved) DXT5/BC3 decode: 16 bytes per 4x4 block."""
+    bw, bh = width // 4, height // 4
+    out = np.zeros((height, width, 4), np.uint8)
+    o = 0
+    for by in range(bh):
+        for bx in range(bw):
+            blk = data[o:o + 16]
+            o += 16
+            a0, a1 = blk[0], blk[1]
+            abits = int.from_bytes(blk[2:8], "little")
+            if a0 > a1:
+                at = [a0, a1, (6 * a0 + a1) // 7, (5 * a0 + 2 * a1) // 7,
+                      (4 * a0 + 3 * a1) // 7, (3 * a0 + 4 * a1) // 7,
+                      (2 * a0 + 5 * a1) // 7, (a0 + 6 * a1) // 7]
+            else:
+                at = [a0, a1, (4 * a0 + a1) // 5, (3 * a0 + 2 * a1) // 5,
+                      (2 * a0 + 3 * a1) // 5, (a0 + 4 * a1) // 5, 0, 255]
+            c0 = blk[8] | (blk[9] << 8)
+            c1 = blk[10] | (blk[11] << 8)
+            col = [_rgb565(c0), _rgb565(c1)]
+            col.append(tuple((2 * col[0][k] + col[1][k]) // 3 for k in range(3)))
+            col.append(tuple((col[0][k] + 2 * col[1][k]) // 3 for k in range(3)))
+            cbits = int.from_bytes(blk[12:16], "little")
+            for py in range(4):
+                for px in range(4):
+                    i = py * 4 + px
+                    r, g, b = col[(cbits >> (2 * i)) & 3]
+                    out[by * 4 + py, bx * 4 + px] = (r, g, b, at[(abits >> (3 * i)) & 7])
+    return out
+
+
 def decode(raw: bytes) -> np.ndarray:
     """Decode ATF bytes into an (H, W, 4) RGBA uint8 array (mip 0).
 
+    format 0/1 = raw RGB/RGBA (JPEG-XR per mip).
     format 2 = DXT1 (2 blocks: colour indices + endpoints).
-    format 4 = DXT5 (4 blocks: alpha indices, alpha endpoints, colour indices,
-               colour endpoints).
+    format 4 = DXT5 (4 blocks: alpha/colour indices + endpoints).
+    format 5 = raw DXT5, old header with UI24 length prefixes.
     """
     fmt, width, height, mips, off = _parse_header(raw)
+
+    if fmt == 5:
+        # old-header variant: first block is raw DXT5, UI24 big-endian length-prefixed
+        blen = int.from_bytes(raw[off:off + 3], "big")
+        return _decode_dxt5_raw(raw[off + 3:off + 3 + blen], width, height)
+
     blocks = list(_blocks(raw, off))
     n = (width // 4) * (height // 4)
 

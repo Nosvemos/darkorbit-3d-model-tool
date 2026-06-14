@@ -41,6 +41,16 @@ def test_decode_dxt1_palette():
     assert tuple(rgb[0, 3]) == (120, 120, 120)  # (c0+2*c1)/3
 
 
+def test_decode_dxt5_raw_block():
+    from src.atf.decoder import _decode_dxt5_raw
+    # one 4x4 block: alpha all 255 (a0=255,a1=0,idx 0), colour all red (c0=red565,idx 0)
+    blk = bytes([255, 0, 0, 0, 0, 0, 0, 0,  0x00, 0xF8, 0, 0, 0, 0, 0, 0])
+    rgba = _decode_dxt5_raw(blk, 4, 4)
+    assert rgba.shape == (4, 4, 4)
+    assert tuple(rgba[0, 0]) == (255, 0, 0, 255)
+    assert (rgba[..., 3] == 255).all()
+
+
 def test_decode_rejects_unsupported_format():
     # format 3 is not handled (only 0/1/2/4)
     d = b"ATF" + bytes([0, 0, 0, 0xFF, 2, 0, 1, 0, 0]) + bytes([3, 3, 3, 1])
