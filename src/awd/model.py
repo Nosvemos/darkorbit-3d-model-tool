@@ -89,9 +89,14 @@ class MeshInstance:
 @dataclass
 class AnimationClip:
     """A vertex/pose animation clip (AWD block type 112), e.g. 'open' / 'close'.
-    Raw payload kept for later; not decoded into morph targets yet."""
+
+    `frames` holds one decoded pose per frame (flat x,y,z positions matching the
+    target geometry's vertex order); `geometry_id` is the geometry it animates.
+    """
     name: str
     raw: bytes = b""
+    frames: list = field(default_factory=list)   # list[list[float]] (positions per frame)
+    geometry_id: int = -1
 
 
 @dataclass

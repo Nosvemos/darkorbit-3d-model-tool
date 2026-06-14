@@ -56,7 +56,31 @@ def build_mesh(obj):
     ob = bpy.data.objects.new(obj["name"], mesh)
     bpy.context.scene.collection.objects.link(ob)
     ob.matrix_world = AXIS_CONV @ make_matrix(obj["matrix"])
+    _add_morphs(ob, obj.get("morphs") or [])
     return ob
+
+
+def _add_morphs(ob, frames):
+    """Add one shape key per pose frame and keyframe them so the mesh plays the
+    vertex animation (exported by glTF as morph-target weight animation)."""
+    if not frames:
+        return
+    ob.shape_key_add(name="basis", from_mix=False)
+    keys = []
+    for fi, frame in enumerate(frames):
+        key = ob.shape_key_add(name=f"pose{fi}", from_mix=False)
+        for v in range(len(key.data)):
+            key.data[v].co = (frame[v * 3], frame[v * 3 + 1], frame[v * 3 + 2])
+        keys.append(key)
+    # play through the poses: pose i is fully on at frame i+1, off on either side
+    scene = bpy.context.scene
+    scene.frame_start = 1
+    scene.frame_end = max(2, len(keys))
+    for i, key in enumerate(keys):
+        for f, val in ((i, 0.0), (i + 1, 1.0), (i + 2, 0.0)):
+            if 1 <= f <= len(keys):
+                key.value = val
+                key.keyframe_insert("value", frame=f)
 
 
 def load_image(path, non_color=False):
@@ -158,7 +182,8 @@ def main():
     name = os.path.splitext(os.path.basename(out_glb))[0]
     os.makedirs(base, exist_ok=True)
     bpy.ops.export_scene.gltf(filepath=out_glb, export_format="GLB",
-                              export_yup=True, use_visible=True)
+                              export_yup=True, use_visible=True,
+                              export_morph=True, export_animations=True)
     if want_gltf:
         d = os.path.join(base, "gltf")
         os.makedirs(d, exist_ok=True)

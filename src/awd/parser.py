@@ -180,8 +180,41 @@ def _parse_instance(data: bytes) -> MeshInstance:
                         material_ids=material_ids, parent_id=parent_id)
 
 
-def _parse_clip(data: bytes) -> AnimationClip:
-    return AnimationClip(name=_Reader(data).str16(), raw=data)
+def _parse_clip(data: bytes, geometries: dict) -> AnimationClip:
+    """Decode a vertex (pose) animation clip into per-frame positions.
+
+    Layout (verified across assets): str16 name, frame count at offset +4 (u16),
+    then `num_frames` blocks each prefixed with a u32 stream length L. L equals
+    vc*12 (positions only) or vc*24 (positions+normals) for the target geometry
+    whose vertex count vc matches; the first vc*3 floats are the positions.
+    """
+    r = _Reader(data)
+    name = r.str16().rstrip("\x00")
+    if r.pos + 6 > len(data):
+        return AnimationClip(name=name, raw=data)
+    num_frames = struct.unpack_from("<H", data, r.pos + 4)[0]
+
+    present = {struct.unpack_from("<I", data, i)[0] for i in range(len(data) - 4)}
+    target_vc = target_gid = stream_len = None
+    for gid, geo in geometries.items():
+        vc = geo.vertex_count
+        if vc and (vc * 12 in present or vc * 24 in present):
+            target_vc, target_gid = vc, gid
+            stream_len = vc * 12 if vc * 12 in present else vc * 24
+            break
+    if not target_vc:
+        return AnimationClip(name=name, raw=data)
+
+    pos_floats = target_vc * 3
+    pos_bytes = pos_floats * 4
+    frames, i = [], r.pos
+    while len(frames) < num_frames and i + 4 + stream_len <= len(data):
+        if struct.unpack_from("<I", data, i)[0] == stream_len:
+            frames.append(list(struct.unpack_from(f"<{pos_floats}f", data, i + 4)))
+            i += 4 + stream_len
+        else:
+            i += 1
+    return AnimationClip(name=name, raw=b"", frames=frames, geometry_id=target_gid)
 
 
 _IDENTITY12 = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
@@ -196,6 +229,7 @@ def parse(raw: bytes, source: str = "<bytes>") -> Scene:
     """Parse raw .awd file bytes into a Scene."""
     body = decompress(raw)
     scene = Scene(source=source)
+    clip_blocks = []
     for block_id, btype, data in _iter_blocks(body):
         if btype == T_GEOMETRY:
             scene.geometries[block_id] = _parse_geometry(data)
@@ -204,8 +238,11 @@ def parse(raw: bytes, source: str = "<bytes>") -> Scene:
         elif btype == T_MESH_INSTANCE:
             scene.instances.append(_parse_instance(data))
         elif btype == T_ANIM_CLIP:
-            scene.clips.append(_parse_clip(data))
+            clip_blocks.append(data)
         # metadata / namespace / animation-set / animator: ignored
+
+    # clips are decoded after all geometries are known (they target one by vc)
+    scene.clips = [_parse_clip(d, scene.geometries) for d in clip_blocks]
 
     # Some exporter variants store the instance transform as a 16x float64 matrix
     # with no usable name/geometry reference -> those instances don't resolve.

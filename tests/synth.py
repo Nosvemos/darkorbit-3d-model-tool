@@ -57,6 +57,17 @@ def instance_block(block_id: int, name: str, matrix12, geom_id: int,
     return _block(block_id, 23, data)
 
 
+def vertex_clip_block(block_id: int, name: str, frames) -> bytes:
+    """A type-112 vertex clip: name, 4 pad bytes, frame count (u16 at +4), then
+    each frame = u32 stream length (vc*12) + vc*3 float positions."""
+    vc = len(frames[0]) // 3
+    L = vc * 12
+    data = _str16(name) + b"\x00\x00\x00\x00" + struct.pack("<H", len(frames))
+    for fr in frames:
+        data += struct.pack("<I", L) + struct.pack(f"<{vc * 3}f", *fr)
+    return _block(block_id, 112, data)
+
+
 def awd_file(blocks: bytes, magic4: bytes = b"AWDc") -> bytes:
     body = blocks
     header = magic4 + bytes([1, 0, 0, 1]) + struct.pack("<I", len(body))

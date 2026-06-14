@@ -108,6 +108,10 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
             indices += [base + i for i in sub.indices]
             uvs += sub.uvs if sub.uvs else [0.0] * (sub.vertex_count * 2)
         is_point = inst.is_point
+        # vertex-animation pose frames whose target geometry is this instance's
+        # (and whose vertex count matches the merged mesh) -> morph targets
+        morphs = [fr for c in scene.clips if c.geometry_id == inst.geometry_id
+                  for fr in c.frames if len(fr) == len(positions)]
         objects.append({
             "name": inst.name,
             "matrix": _matrix16(inst),
@@ -116,6 +120,7 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
             "uvs": uvs,
             # points become empties and need no textures; body meshes share the set
             "textures": {} if is_point else textures,
+            "morphs": morphs,
         })
 
     data = {"name": mesh_name, "objects": objects}

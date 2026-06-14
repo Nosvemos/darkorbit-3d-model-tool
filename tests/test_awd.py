@@ -69,6 +69,22 @@ def test_geometry_property_skip_regression():
     assert scene.geometries[1].subs[0].positions == POS
 
 
+def test_vertex_clip_frames_parsed():
+    pose_a = [0.0] * 9                         # 3 verts, flat
+    pose_b = [1.0, 2.0, 3.0] + [0.0] * 6
+    blocks = (
+        synth.geometry_block(1, "ship_geom", POS, IDX, UV)
+        + synth.instance_block(2, "ship", IDENT12, geom_id=1)
+        + synth.vertex_clip_block(3, "idle", [pose_a, pose_b])
+    )
+    scene = parse(synth.awd_file(blocks))
+    assert len(scene.clips) == 1
+    clip = scene.clips[0]
+    assert clip.name == "idle"
+    assert clip.geometry_id == 1
+    assert clip.frames == [pose_a, pose_b]
+
+
 def test_point_classification_and_orphan_naming():
     # one body, one engine point (instanced), one orphan geometry with a null~ material
     blocks = (
