@@ -162,6 +162,7 @@ def add_render_args(ap):
     g.add_argument("--start-angle", type=float, dest="start_angle")
     g.add_argument("--frame-start", type=int, dest="frame_start",
                    help="first frame number in filenames (default 1)")
+    g.add_argument("--clip", help="play/export a single animation clip (default: all)")
 
     g = ap.add_argument_group("output / quality")
     g.add_argument("--resolution", type=int)
@@ -222,7 +223,7 @@ def main():
 
     for name in names:
         print(f"=== render {name} ===")
-        print(f"  -> {render(name, ov, fx=args.fx)}")
+        print(f"  -> {render(name, ov, fx=args.fx, clip=args.clip or None)}")
 
 
 if __name__ == "__main__":

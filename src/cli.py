@@ -52,7 +52,7 @@ def cmd_render(args):
     ov = render_mod.overrides_from_args(args)
     for name in _resolve_meshes(args):
         print(f"=== render {name} ===")
-        print(f"  -> {render_mod.render(name, ov, fx=args.fx)}")
+        print(f"  -> {render_mod.render(name, ov, fx=args.fx, clip=args.clip or None)}")
 
 
 def cmd_fx(args):
