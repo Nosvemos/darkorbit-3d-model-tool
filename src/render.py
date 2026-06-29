@@ -80,14 +80,14 @@ def stable_crop(out_dir: str, raw: dict, padding: int, origin: str) -> dict:
 
 def render(mesh_name: str, overrides: dict, fx: bool = False,
            textures: dict | None = None, clip: str | None = None,
-           progress=None) -> str:
+           overlay: str | None = None, progress=None) -> str:
     base = config.FX_OUT if fx else config.OUT_DIR
     glb = os.path.join(config.model_dir(mesh_name, base), f"{mesh_name}.glb")
-    # rebuild the glb if it's missing or the user picked textures / a clip manually
-    if textures or clip or not os.path.exists(glb):
+    # rebuild the glb if it's missing or the user picked textures / a clip / an overlay manually
+    if textures or clip or overlay or not os.path.exists(glb):
         if progress:
             progress("building glb…")
-        convert(mesh_name, fx=fx, textures=textures, clip=clip, progress=progress)
+        convert(mesh_name, fx=fx, textures=textures, clip=clip, overlay=overlay, progress=progress)
 
     work = config.work_dir(mesh_name, base)
     sprites = config.sprites_dir(mesh_name, base)
@@ -98,6 +98,9 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
         os.remove(old)
 
     cfg = dict(config.RENDER_DEFAULTS)
+    quality = overrides.get("quality") or cfg.get("quality")
+    if quality in config.QUALITY_PRESETS:
+        cfg.update(config.QUALITY_PRESETS[quality])
     cfg.update(overrides)
     cfg_path = os.path.join(work, f"{mesh_name}_render_cfg.json")
     with open(cfg_path, "w", encoding="utf-8") as f:
@@ -145,6 +148,9 @@ _FLAG_TO_KEY = {
     "world_strength": "world_strength", "sun_energy": "sun_energy",
     "emission": "emission_strength", "elevation": "cam_elevation",
     "azimuth": "cam_azimuth", "margin": "cam_margin",
+    "anim_frame_start": "anim_frame_start", "anim_frame_end": "anim_frame_end",
+    "sun_color": "sun_color", "world_color": "world_color",
+    "quality": "quality",
 }
 
 
@@ -163,6 +169,11 @@ def add_render_args(ap):
     g.add_argument("--frame-start", type=int, dest="frame_start",
                    help="first frame number in filenames (default 1)")
     g.add_argument("--clip", help="play/export a single animation clip (default: all)")
+    g.add_argument("--no-rotation", action="store_true", help="disable turntable Z rotation")
+    g.add_argument("--anim-frame-start", type=int, dest="anim_frame_start",
+                   help="start frame of the animation clip (default 1)")
+    g.add_argument("--anim-frame-end", type=int, dest="anim_frame_end",
+                   help="end frame of the animation clip")
 
     g = ap.add_argument_group("output / quality")
     g.add_argument("--resolution", type=int)
@@ -174,6 +185,7 @@ def add_render_args(ap):
     g.add_argument("--no-transparent", action="store_true",
                    help="render on opaque background")
     g.add_argument("--origin", choices=["TOP_LEFT", "BOTTOM_LEFT"])
+    g.add_argument("--quality", choices=["extra_low", "low", "medium", "high", "extra_high", "custom"])
 
     g = ap.add_argument_group("camera / lighting")
     g.add_argument("--hdri", help="bundled world HDRI, e.g. studio.exr / city.exr")
@@ -184,6 +196,8 @@ def add_render_args(ap):
     g.add_argument("--azimuth", type=float)
     g.add_argument("--persp", action="store_true", help="perspective (default ortho)")
     g.add_argument("--margin", type=float, help="frame padding factor (>1 zooms out)")
+    g.add_argument("--sun-color", dest="sun_color", help="sun light color (hex)")
+    g.add_argument("--world-color", dest="world_color", help="world background light color (hex)")
 
 
 def overrides_from_args(args) -> dict:
@@ -199,6 +213,8 @@ def overrides_from_args(args) -> dict:
         ov["stable_crop"] = False
     if getattr(args, "no_transparent", False):
         ov["film_transparent"] = False
+    if getattr(args, "no_rotation", False):
+        ov["rotation"] = False
     return ov
 
 
@@ -208,6 +224,7 @@ def main():
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--fx", action="store_true",
                     help="render fx_*.awd meshes from fx/ (output under out/fx/)")
+    ap.add_argument("--overlay", help="mesh name to overlay/render on top")
     add_render_args(ap)
     args = ap.parse_args()
 
@@ -223,7 +240,7 @@ def main():
 
     for name in names:
         print(f"=== render {name} ===")
-        print(f"  -> {render(name, ov, fx=args.fx, clip=args.clip or None)}")
+        print(f"  -> {render(name, ov, fx=args.fx, clip=args.clip or None, overlay=args.overlay)}")
 
 
 if __name__ == "__main__":

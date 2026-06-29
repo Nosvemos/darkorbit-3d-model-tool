@@ -64,6 +64,11 @@ def parent_under_root(center):
     return root
 
 
+def hex_to_rgb(hex_str: str) -> list[float]:
+    hex_str = hex_str.lstrip('#')
+    return [int(hex_str[i:i+2], 16) / 255.0 for i in (0, 2, 4)]
+
+
 def setup_world(cfg):
     hdri_dir = bpy.utils.system_resource("DATAFILES", path="studiolights/world")
     path = os.path.join(hdri_dir, cfg["world_hdri"])
@@ -77,15 +82,42 @@ def setup_world(cfg):
     bg = nt.nodes.new("ShaderNodeBackground")
     bg.inputs["Strength"].default_value = cfg["world_strength"]
     nt.links.new(bg.outputs["Background"], out.inputs["Surface"])
+
+    world_color_hex = cfg.get("world_color", "#ffffff")
+    color_rgb = hex_to_rgb(world_color_hex)
+
     if os.path.exists(path):
         env = nt.nodes.new("ShaderNodeTexEnvironment")
         env.image = bpy.data.images.load(path, check_existing=True)
-        nt.links.new(env.outputs["Color"], bg.inputs["Color"])
+        # Try to multiply the texture with the color using Mix node
+        try:
+            mix = nt.nodes.new("ShaderNodeMix")
+            mix.data_type = 'RGBA'
+            mix.blend_type = 'MULTIPLY'
+            mix.inputs["Factor"].default_value = 1.0
+            nt.links.new(env.outputs["Color"], mix.inputs["A"])
+            mix.inputs["B"].default_value = color_rgb + [1.0]
+            nt.links.new(mix.outputs["Result"], bg.inputs["Color"])
+        except Exception:
+            try:
+                mix = nt.nodes.new("ShaderNodeMixRGB")
+                mix.blend_type = 'MULTIPLY'
+                mix.inputs["Fac"].default_value = 1.0
+                nt.links.new(env.outputs["Color"], mix.inputs["Color1"])
+                mix.inputs["Color2"].default_value = color_rgb + [1.0]
+                nt.links.new(mix.outputs["Color"], bg.inputs["Color"])
+            except Exception:
+                # Fallback to direct connection if both mix nodes fail
+                nt.links.new(env.outputs["Color"], bg.inputs["Color"])
+    else:
+        bg.inputs["Color"].default_value = color_rgb + [1.0]
 
 
 def setup_sun(cfg):
     data = bpy.data.lights.new("Sun", "SUN")
     data.energy = cfg["sun_energy"]
+    sun_color_hex = cfg.get("sun_color", "#ffffff")
+    data.color = hex_to_rgb(sun_color_hex)
     sun = bpy.data.objects.new("Sun", data)
     sun.rotation_euler = [math.radians(a) for a in cfg["sun_angle"]]
     bpy.context.scene.collection.objects.link(sun)
@@ -225,6 +257,10 @@ def main():
     solo_first_clip()
     anim_end = animation_end()   # >1 if the glb carries a vertex (morph) animation
 
+    astart = max(1.0, min(float(cfg.get("anim_frame_start", 1)), anim_end))
+    aend = float(cfg.get("anim_frame_end") or anim_end)
+    aend = max(1.0, min(aend, anim_end))
+
     frames = cfg["frames"]
     start = cfg.get("start_angle", 0.0)
     # per-frame step: explicit override, else spread total_degrees across all frames
@@ -232,11 +268,17 @@ def main():
     if not step:
         step = cfg.get("total_degrees", 360.0) / max(frames, 1)
     frame_start = cfg.get("frame_start", 1)
+    rotation_enabled = cfg.get("rotation", True)
+
     for f in range(frames):
-        root.rotation_euler.z = math.radians(start + f * step)
+        if rotation_enabled:
+            root.rotation_euler.z = math.radians(start + f * step)
+        else:
+            root.rotation_euler.z = math.radians(start)
+
         # play the morph animation across the render frames (alongside the turntable)
         if anim_end > 1:
-            af = 1.0 + (anim_end - 1.0) * (f / max(frames - 1, 1))
+            af = astart + (aend - astart) * (f / max(frames - 1, 1))
             sc.frame_set(int(af), subframe=af - int(af))
         bpy.context.view_layer.update()
         fname = f"{name}_{frame_start + f}.png"

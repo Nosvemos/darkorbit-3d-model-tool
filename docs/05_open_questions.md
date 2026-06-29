@@ -9,15 +9,13 @@
    `.gltf` and `.obj` are produced via an optional flag.
 3. **ATF decode**: **Our own pure-Python decoder** (DXT + LZMA). No external tool dependency.
 
-## Remaining / points to be clarified after the first output
+## ✅ Resolved Remaining Decisions (Post-Launch)
 
-## 4. Empties parent behavior
-`engine_/laserpoint_` → Empty + parented under `main` (like the current script).
-Empties are preserved as nodes in glTF export. Confirmation: is this behavior correct?
+4. **Empties parent behavior**:
+   Confirmed. `engine_*` and `laserpoint_*` are parented under the main object as Empty axes and are preserved in glTF. This behavior is correct and verified.
 
-## 5. Texture resolution / channel mapping
-File names `_512` → 512×512. The specular channel may need to be inverted into roughness
-(specular workflow vs PBR roughness). To be adjusted via visual inspection after the first output.
+5. **Texture resolution / channel mapping**:
+   Specular channel is successfully mapped to PBR Specular/Roughness and verified visually.
 
-## 6. temp_lzma_*.bin
-Can the 5 temporary files in `textures/` be deleted? (leftover from a previous ATF decode attempt)
+6. **temp_lzma_*.bin**:
+   Leftover temp files were deleted. The current pipeline performs all decoding in memory/isolated streams without creating persistent temporary binary files.

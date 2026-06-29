@@ -50,6 +50,7 @@ RENDER_DEFAULTS = {
     # item  -> plain render (ore, items like lf4, ...), no point tracking / no JSON
     # auto  -> ship behaviour if any point empties exist, else item
     "mode": "auto",
+    "quality": "medium",       # extra_low, low, medium, high, extra_high, custom
     "frames": 72,              # turntable frame count (1 = single still)
     "total_degrees": 360.0,    # full sweep; per-frame step = total_degrees / frames
     "deg_per_frame": None,     # set to override the auto step (e.g. 5.0)
@@ -60,10 +61,16 @@ RENDER_DEFAULTS = {
     "view_transform": "Standard",  # accurate texture colours (not AgX/Filmic)
     "film_transparent": True,  # RGBA output on transparent background
 
+    "rotation": True,          # spin the model around Z (turntable)
+    "anim_frame_start": 1,     # start frame for animation clip
+    "anim_frame_end": None,    # end frame for animation clip (None = end of clip)
+
     "world_hdri": "studio.exr",  # bundled Blender studio light (world env)
     "world_strength": 0.8,
+    "world_color": "#ffffff",  # tint for the world background light
 
     "sun_energy": 1.5,
+    "sun_color": "#ffffff",    # light color for the sun
     "sun_angle": [50.0, 0.0, 40.0],   # degrees, XYZ euler
     "emission_strength": 0.6,  # glow/emission map multiplier (lower = subtler)
 
@@ -89,3 +96,11 @@ POINT_PREFIXES = ("engine_", "laserpoint_", "light_position")
 # Subset whose screen positions are tracked into <mesh>_Coords.json.
 # light_position stays an Empty in the glb but is NOT a render coord target.
 COORD_PREFIXES = ("engine_", "laserpoint_")
+
+QUALITY_PRESETS = {
+    "extra_low": {"resolution": 128, "samples": 16},
+    "low": {"resolution": 256, "samples": 32},
+    "medium": {"resolution": 256, "samples": 96},
+    "high": {"resolution": 512, "samples": 128},
+    "extra_high": {"resolution": 1024, "samples": 256},
+}

@@ -3,9 +3,9 @@
 Principle: each phase produces an independently verifiable output. First run end-to-end
 on a single mesh (cubikon), then process in batch.
 
-## Phase 0 — Project skeleton
-- [ ] `src/` package structure, `config.py`, `requirements.txt`.
-- [ ] Blender exe path detection/configuration.
+## Phase 0 — Project skeleton ✅
+- [x] `src/` package structure, `config.py`, `requirements.txt`.
+- [x] Blender exe path detection/configuration.
 
 ## Phase 1 — ATF decoder ✅
 - [x] ATF header parse (new-version offset 12; format/width/height/mip).
@@ -94,3 +94,20 @@ out/<mesh>/
   work/                       # intermediate files (scene/cfg/meta json)
 ```
 Quality: EEVEE samples 96, **Standard view transform** (correct texture colors, not AgX/Filmic).
+
+## Phase 6 — Web UI ✅
+- [x] Simple, dependency-free local web server (`src/server.py`).
+- [x] List, search and inspect mesh details, reference points, and auto-detected textures.
+- [x] Run conversion/rendering with background jobs and stream live logs.
+- [x] Frame-by-frame sprite player with scrubbing, speed control, and download links.
+
+## Phase 7 — Mesh Overlays & Animation Ranges ✅
+- [x] Mesh overlay option (`--overlay`) to merge a secondary model on top of the main body (e.g. boss attachments).
+- [x] Turntable rotation bypass option (`--no-rotation`).
+- [x] Custom frame subsets option (`--anim-frame-start`, `--anim-frame-end`) to isolate animation intervals.
+- [x] Eeşzamanlı (synchronized) overlay animasyon oynatımı.
+
+## Phase 8 — Custom Lighting Controls & Quality Presets ✅
+- [x] Expose custom light values (`--sun-color`, `--world-color`, `--sun-energy`, `--world-strength`) in CLI and Web UI.
+- [x] Implement MixRGB multiplier logic inside Blender scripts to tint HDRI lighting.
+- [x] Create interactive Quality Presets (`extra_low`/`low`/`medium`/`high`/`extra_high`) mapping to resolution and sample presets with manual overrides.

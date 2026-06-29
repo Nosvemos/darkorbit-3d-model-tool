@@ -181,6 +181,7 @@ async function select(name){
 
 const HDRIS = ["studio","city","courtyard","forest","interior","night","sunrise","sunset"];
 const num = (k,v,step="") => `<label>${k.label}<input type="number" class="opt" data-key="${k.key}" value="${v}"${step?` step="${step}"`:""}></label>`;
+const color = (k,v) => `<label>${k.label}<input type="color" class="opt" data-key="${k.key}" value="${v}"></label>`;
 
 function renderActions(){
   const a = $("#actions");
@@ -195,10 +196,19 @@ function renderActions(){
   }
   a.innerHTML = `<div class="row">
       <label>mode<select class="opt" data-key="mode"><option>auto</option><option>ship</option><option>item</option></select></label>
+      <label>quality<select class="opt" data-key="quality" id="o_quality">
+        <option value="extra_low">extra low</option>
+        <option value="low">low</option>
+        <option value="medium" selected>medium</option>
+        <option value="high">high</option>
+        <option value="extra_high">extra high</option>
+        <option value="custom">custom</option>
+      </select></label>
       ${num({label:"frames",key:"frames"},72)}
       ${num({label:"resolution",key:"resolution"},256)}
       <label>lighting<select class="opt" data-key="world_hdri">${HDRIS.map(h=>`<option value="${h}.exr">${h}</option>`).join("")}</select></label>
       <label>clip<select id="o_clip"><option value="">all</option></select></label>
+      <label>overlay<input type="text" class="opt" id="o_overlay" data-key="overlay" placeholder="e.g. sibelonit" style="width:90px"></label>
       <button class="act" id="b_render">Render Sprites</button>
     </div>
     <div style="margin-top:12px">
@@ -217,8 +227,15 @@ function renderActions(){
         ${num({label:"margin",key:"cam_margin"},1.15,"0.05")}
         ${num({label:"samples",key:"samples"},96)}
         ${num({label:"emission",key:"emission_strength"},0.6,"0.1")}
+        ${num({label:"anim start",key:"anim_frame_start"},1)}
+        ${num({label:"anim end",key:"anim_frame_end"},"")}
+        ${num({label:"world str",key:"world_strength"},0.8,"0.1")}
+        ${num({label:"sun energy",key:"sun_energy"},1.5,"0.1")}
+        ${color({label:"world color",key:"world_color"},"#ffffff")}
+        ${color({label:"sun color",key:"sun_color"},"#ffffff")}
         <label>view<select class="opt" data-key="view_transform"><option>Standard</option><option>AgX</option><option>Filmic</option></select></label>
         <label class="chk"><input type="checkbox" class="optbool" data-key="cam_ortho" data-invert="1" checked> orthographic</label>
+        <label class="chk"><input type="checkbox" class="optbool" data-key="rotation" data-invert="1" checked> rotation</label>
       </div>
     </details>
     <div class="row" style="margin-top:12px">
@@ -226,6 +243,27 @@ function renderActions(){
       <label class="chk"><input type="checkbox" id="o_obj"> .obj</label>
       <button class="act alt" id="b_convert">Convert to glb</button>
     </div>`;
+
+  const presets = {
+    extra_low: {resolution: 128, samples: 16},
+    low: {resolution: 256, samples: 32},
+    medium: {resolution: 256, samples: 96},
+    high: {resolution: 512, samples: 128},
+    extra_high: {resolution: 1024, samples: 256}
+  };
+  $("#o_quality").onchange = (e) => {
+    const val = e.target.value;
+    if(val in presets) {
+      document.querySelector('.opt[data-key="resolution"]').value = presets[val].resolution;
+      document.querySelector('.opt[data-key="samples"]').value = presets[val].samples;
+    }
+  };
+  const onManualChange = () => {
+    $("#o_quality").value = "custom";
+  };
+  document.querySelector('.opt[data-key="resolution"]').oninput = onManualChange;
+  document.querySelector('.opt[data-key="samples"]').oninput = onManualChange;
+
   $("#b_render").onclick = runRender;
   $("#b_convert").onclick = runConvert;
 }
@@ -256,7 +294,7 @@ function busy(b){ document.querySelectorAll("#actions button").forEach(x=>x.disa
 async function runConvert(){
   busy(true); setStatus("converting… (Blender)");
   try{
-    const r = await runJob("/api/convert",{name:sel, fx:isFx(), gltf:$("#o_gltf").checked, obj:$("#o_obj").checked, textures:collectTextures(), clip:($("#o_clip")||{}).value||""});
+    const r = await runJob("/api/convert",{name:sel, fx:isFx(), gltf:$("#o_gltf").checked, obj:$("#o_obj").checked, textures:collectTextures(), clip:($("#o_clip")||{}).value||"", overlay:($("#o_overlay")||{}).value||""});
     setStatus("converted ✓"); showLinks({glb:r.glb});
   }catch(e){ setStatus("error: "+e.message); } finally{ busy(false); }
 }

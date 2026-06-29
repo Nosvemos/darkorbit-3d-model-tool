@@ -33,6 +33,7 @@ class Geometry:
     """A named geometry made of one or more sub-meshes."""
     name: str
     subs: list[SubMesh] = field(default_factory=list)
+    pos_ftype: int = 7
 
     @property
     def vertex_count(self) -> int:

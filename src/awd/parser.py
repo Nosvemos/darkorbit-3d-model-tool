@@ -142,6 +142,7 @@ def _parse_geometry(data: bytes) -> Geometry:
             r.pos += slen
             if stream_type == S_POSITIONS:
                 positions = values
+                geo.pos_ftype = ftype
             elif stream_type == S_INDICES:
                 indices = values
             elif stream_type == S_UVS:
@@ -196,21 +197,26 @@ def _parse_clip(data: bytes, geometries: dict) -> AnimationClip:
 
     present = {struct.unpack_from("<I", data, i)[0] for i in range(len(data) - 4)}
     target_vc = target_gid = stream_len = None
+    target_ftype = 7
     for gid, geo in geometries.items():
         vc = geo.vertex_count
-        if vc and (vc * 12 in present or vc * 24 in present):
-            target_vc, target_gid = vc, gid
-            stream_len = vc * 12 if vc * 12 in present else vc * 24
-            break
+        if vc:
+            possible_lens = [vc * 12, vc * 24, vc * 48]
+            found = [sz for sz in possible_lens if sz in present]
+            if found:
+                target_vc, target_gid = vc, gid
+                stream_len = found[0]
+                target_ftype = geo.pos_ftype
+                break
     if not target_vc:
         return AnimationClip(name=name, raw=data)
 
     pos_floats = target_vc * 3
-    pos_bytes = pos_floats * 4
+    fmt_char = "d" if target_ftype == 8 else "f"
     frames, i = [], r.pos
     while len(frames) < num_frames and i + 4 + stream_len <= len(data):
         if struct.unpack_from("<I", data, i)[0] == stream_len:
-            frames.append(list(struct.unpack_from(f"<{pos_floats}f", data, i + 4)))
+            frames.append(list(struct.unpack_from(f"<{pos_floats}{fmt_char}", data, i + 4)))
             i += 4 + stream_len
         else:
             i += 1

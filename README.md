@@ -84,6 +84,7 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--gltf`       | Also export `.gltf` (separate) into `model/gltf/`.                |
 | `--obj`        | Also export `.obj` (+ `.mtl`) into `model/obj/`.                  |
 | `--no-blender` | Decode textures and emit the scene JSON only; skip Blender.       |
+| `--overlay NAME`| Overlay another mesh (AWD) on top of the main model.              |
 
 ### `render`
 
@@ -105,6 +106,9 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--start-angle D`   | 90      | Rotation at frame 1 (front faces screen-right).      |
 | `--frame-start N`   | 1       | First frame number in filenames.                     |
 | `--clip NAME`       | all     | Play/export a single animation clip.                 |
+| `--no-rotation`     | off     | Disable Z rotation (turntable) during rendering.     |
+| `--anim-frame-start N`| 1     | Start frame of the animation clip.                   |
+| `--anim-frame-end N`  | —     | End frame of the animation clip.                     |
 
 **Output & quality**
 
@@ -117,6 +121,7 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--no-crop`             | off              | Disable the global stable crop.          |
 | `--no-transparent`      | off              | Render on an opaque background.          |
 | `--origin MODE`         | `TOP_LEFT`       | Coordinate origin (`TOP_LEFT`/`BOTTOM_LEFT`). |
+| `--quality NAME`        | `medium`         | Quality preset (`extra_low`/`low`/`medium`/`high`/`extra_high`/`custom`). |
 
 **Camera & lighting**
 
@@ -130,6 +135,9 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--azimuth D`        | -90           | Camera azimuth around Z.                 |
 | `--persp`            | ortho         | Perspective camera instead of orthographic. |
 | `--margin F`         | 1.15          | Framing padding factor (> 1 zooms out).  |
+| `--sun-color HEX`    | `#ffffff`     | Sun light color.                         |
+| `--world-color HEX`  | `#ffffff`     | World background light color.            |
+| `--overlay NAME`     | —             | Overlay another mesh (AWD) on top of the main model. |
 
 Bundled HDRIs: `studio` · `city` · `courtyard` · `forest` · `interior` · `night`
 · `sunrise` · `sunset`. All defaults live in `RENDER_DEFAULTS`

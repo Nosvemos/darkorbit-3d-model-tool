@@ -91,44 +91,53 @@ def decode_textures(mesh_name: str, textures_dir: str, model_out: str,
 
 def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
                      model_out: str, work: str, textures: dict | None = None,
-                     clip: str | None = None) -> str:
+                     clip: str | None = None, overlay: str | None = None) -> str:
     """Parse the AWD and write the intermediate scene JSON. Returns its path."""
     scene = parse_file(os.path.join(meshes_dir, f"{mesh_name}.awd"))
-    textures = decode_textures(mesh_name, textures_dir, model_out, overrides=textures)
+    main_textures = decode_textures(mesh_name, textures_dir, model_out, overrides=textures)
 
     objects = []
-    for inst in scene.instances:
-        geo = scene.geometry_for(inst)
-        if not geo or not geo.subs:
-            continue
-        # merge sub-meshes into one vertex/index/uv set
-        positions, indices, uvs = [], [], []
-        for sub in geo.subs:
-            base = len(positions) // 3
-            positions += sub.positions
-            indices += [base + i for i in sub.indices]
-            uvs += sub.uvs if sub.uvs else [0.0] * (sub.vertex_count * 2)
-        is_point = inst.is_point
-        # vertex-animation clips targeting this instance's geometry -> each becomes
-        # its own named glTF animation (morph targets). `clip` limits to one clip;
-        # otherwise every matching clip is exported separately.
-        clips_out = []
-        for c in scene.clips:
-            if c.geometry_id != inst.geometry_id or (clip and c.name != clip):
+
+    def add_scene_objects(sc, texs):
+        for inst in sc.instances:
+            geo = sc.geometry_for(inst)
+            if not geo or not geo.subs:
                 continue
-            frames = [fr for fr in c.frames if len(fr) == len(positions)]
-            if frames:
-                clips_out.append({"name": c.name, "frames": frames})
-        objects.append({
-            "name": inst.name,
-            "matrix": _matrix16(inst),
-            "positions": positions,
-            "indices": indices,
-            "uvs": uvs,
-            # points become empties and need no textures; body meshes share the set
-            "textures": {} if is_point else textures,
-            "clips": clips_out,
-        })
+            # merge sub-meshes into one vertex/index/uv set
+            positions, indices, uvs = [], [], []
+            for sub in geo.subs:
+                base = len(positions) // 3
+                positions += sub.positions
+                indices += [base + i for i in sub.indices]
+                uvs += sub.uvs if sub.uvs else [0.0] * (sub.vertex_count * 2)
+            is_point = inst.is_point
+            # vertex-animation clips targeting this instance's geometry -> each becomes
+            # its own named glTF animation (morph targets). `clip` limits to one clip;
+            # otherwise every matching clip is exported separately.
+            clips_out = []
+            for c in sc.clips:
+                if c.geometry_id != inst.geometry_id or (clip and c.name != clip):
+                    continue
+                frames = [fr for fr in c.frames if len(fr) == len(positions)]
+                if frames:
+                    clips_out.append({"name": c.name, "frames": frames})
+            objects.append({
+                "name": inst.name,
+                "matrix": _matrix16(inst),
+                "positions": positions,
+                "indices": indices,
+                "uvs": uvs,
+                # points become empties and need no textures; body meshes share the set
+                "textures": {} if is_point else texs,
+                "clips": clips_out,
+            })
+
+    add_scene_objects(scene, main_textures)
+
+    if overlay:
+        overlay_scene = parse_file(os.path.join(meshes_dir, f"{overlay}.awd"))
+        overlay_textures = decode_textures(overlay, textures_dir, model_out)
+        add_scene_objects(overlay_scene, overlay_textures)
 
     data = {"name": mesh_name, "objects": objects}
     os.makedirs(work, exist_ok=True)
@@ -171,7 +180,7 @@ def run_blender(scene_json: str, out_glb: str, gltf: bool, obj: bool,
 
 def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
             run: bool = True, fx: bool = False, textures: dict | None = None,
-            clip: str | None = None, progress=None) -> str:
+            clip: str | None = None, overlay: str | None = None, progress=None) -> str:
     meshes_dir = config.FX_DIR if fx else config.MESHES_DIR
     textures_dir = config.FX_DIR if fx else config.TEXTURES_DIR
     out_base = config.FX_OUT if fx else config.OUT_DIR
@@ -179,7 +188,7 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
     work = config.work_dir(mesh_name, out_base)
     os.makedirs(model, exist_ok=True)
     scene_json = build_scene_json(mesh_name, meshes_dir, textures_dir, model, work,
-                                  textures=textures, clip=clip)
+                                  textures=textures, clip=clip, overlay=overlay)
     out_glb = os.path.join(model, f"{mesh_name}.glb")
     if run:
         run_blender(scene_json, out_glb, gltf, obj, progress=progress)
@@ -196,6 +205,7 @@ def main():
     ap.add_argument("--obj", action="store_true", help="also export .obj")
     ap.add_argument("--no-blender", action="store_true",
                     help="only emit scene JSON + textures, skip Blender")
+    ap.add_argument("--overlay", help="mesh name to overlay/render on top")
     args = ap.parse_args()
 
     src_dir = config.FX_DIR if args.fx else config.MESHES_DIR
@@ -210,7 +220,7 @@ def main():
     for name in names:
         print(f"=== {name} ===")
         out = convert(name, gltf=args.gltf, obj=args.obj,
-                      run=not args.no_blender, fx=args.fx)
+                      run=not args.no_blender, fx=args.fx, overlay=args.overlay)
         print(f"  -> {out}")
 
 
