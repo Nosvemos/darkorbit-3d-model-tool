@@ -11,10 +11,14 @@ def test_subcommand_dispatch():
     assert a.command == "info" and a.mesh == "sibelon" and a.func.__name__ == "cmd_info"
     a = ap.parse_args(["convert", "x", "--fx", "--gltf", "--no-blender"])
     assert a.fx and a.gltf and a.no_blender
+    a = ap.parse_args(["convert", "x", "--overlay", "addon", "--output-name", "renamed"])
+    assert a.overlay == "addon" and a.output_name == "renamed"
     a = ap.parse_args(["list"])
     assert a.what == "all"
-    a = ap.parse_args(["fx", "explosion0", "--frames", "12"])
-    assert a.name == "explosion0" and a.frames == 12
+    a = ap.parse_args(["fx", "explosion0", "--frames", "12", "--export-name", "boom"])
+    assert a.name == "explosion0" and a.frames == 12 and a.output_name == "boom"
+    a = ap.parse_args(["render", "m", "--overlay", "addon", "--output-name", "shot"])
+    assert a.overlay == "addon" and a.output_name == "shot"
     a = ap.parse_args(["ui", "--port", "9001", "--no-browser"])
     assert a.command == "ui" and a.port == 9001 and a.no_browser
 

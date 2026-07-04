@@ -11,6 +11,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import queue
 import re
 import threading
 import webbrowser
@@ -92,22 +93,26 @@ def api_convert(body, progress=None):
                            obj=bool(body.get("obj")), fx=fx,
                            textures=body.get("textures") or None,
                            clip=body.get("clip") or None,
-                           overlay=body.get("overlay") or None, progress=progress)
+                           overlay=body.get("overlay") or None,
+                           output_name=body.get("output_name") or None,
+                           progress=progress)
     return {"ok": True, "glb": _rel_url(glb)}
 
 
 def api_render(body, progress=None):
     name = body["name"]
     fx = bool(body.get("fx"))
+    export_name = config.safe_output_name(body.get("output_name"), name)
     ov = {k: v for k, v in body.items()
           if k in config.RENDER_DEFAULTS and v not in (None, "")}
     sprites = render_mod.render(name, ov, fx=fx, textures=body.get("textures") or None,
                                 clip=body.get("clip") or None,
-                                overlay=body.get("overlay") or None, progress=progress)
+                                overlay=body.get("overlay") or None,
+                                output_name=export_name, progress=progress)
     base = config.FX_OUT if fx else config.OUT_DIR
-    coords = os.path.join(sprites, f"{name}_Coords.json")
-    glb = os.path.join(config.model_dir(name, base), f"{name}.glb")
-    return {"ok": True, "frames": _frame_urls(sprites, name),
+    coords = os.path.join(sprites, f"{export_name}_Coords.json")
+    glb = os.path.join(config.model_dir(name, base), f"{export_name}.glb")
+    return {"ok": True, "frames": _frame_urls(sprites, export_name),
             "coords": _rel_url(coords) if os.path.exists(coords) else None,
             "glb": _rel_url(glb) if os.path.exists(glb) else None}
 
@@ -118,8 +123,10 @@ def api_fx(body, progress=None):
         progress("simulating particles…")
     sprites = fx_render.render(name, int(body.get("frames", 30)),
                                int(body.get("resolution", 256)),
-                               float(body.get("margin", 1.2)))
-    return {"ok": True, "frames": _frame_urls(sprites, name)}
+                               float(body.get("margin", 1.2)),
+                               output_name=body.get("output_name") or None)
+    export_name = config.safe_output_name(body.get("output_name"), name)
+    return {"ok": True, "frames": _frame_urls(sprites, export_name)}
 
 
 # --- background jobs (so long Blender runs stream progress, don't block) -----
@@ -127,16 +134,20 @@ def api_fx(body, progress=None):
 _JOBS: dict = {}
 _LOCK = threading.Lock()
 _SEQ = [0]
+_QUEUE = queue.Queue()
+_WORKER_STARTED = [False]
 
 
-def _start_job(fn):
-    with _LOCK:
-        _SEQ[0] += 1
-        jid = str(_SEQ[0])
-    job = {"status": "running", "log": [], "result": None, "error": None}
-    _JOBS[jid] = job
+def _job_worker():
+    while True:
+        jid, fn = _QUEUE.get()
+        job = _JOBS.get(jid)
+        if not job:
+            _QUEUE.task_done()
+            continue
+        job["status"] = "running"
+        job["log"].append("started")
 
-    def run():
         def prog(line):
             job["log"].append(line)
             del job["log"][:-200]               # keep the tail bounded
@@ -146,8 +157,31 @@ def _start_job(fn):
         except BaseException as e:   # incl. SystemExit, so failures never hang the job
             job["error"] = str(e) or e.__class__.__name__
             job["status"] = "error"
+        finally:
+            _QUEUE.task_done()
 
-    threading.Thread(target=run, daemon=True).start()
+
+def _ensure_worker_locked():
+    if _WORKER_STARTED[0]:
+        return
+    threading.Thread(target=_job_worker, daemon=True).start()
+    _WORKER_STARTED[0] = True
+
+
+def _queue_position(jid: str) -> int:
+    with _QUEUE.mutex:
+        ids = [item[0] for item in list(_QUEUE.queue)]
+    return ids.index(jid) + 1 if jid in ids else 0
+
+
+def _start_job(fn):
+    with _LOCK:
+        _SEQ[0] += 1
+        jid = str(_SEQ[0])
+        job = {"status": "queued", "log": ["queued"], "result": None, "error": None}
+        _JOBS[jid] = job
+        _QUEUE.put((jid, fn))
+        _ensure_worker_locked()
     return jid
 
 
@@ -156,7 +190,8 @@ def api_job(q):
     if not job:
         return {"status": "unknown"}
     return {"status": job["status"], "log": job["log"][-8:],
-            "result": job["result"], "error": job["error"]}
+            "result": job["result"], "error": job["error"],
+            "queue_position": _queue_position(q.get("id", [""])[0])}
 
 
 class Handler(BaseHTTPRequestHandler):

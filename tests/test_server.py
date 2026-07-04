@@ -1,5 +1,7 @@
 """Tests for the web UI server's pure helpers (no sockets, no assets)."""
 import os
+import threading
+import time
 
 from src import config, server
 
@@ -20,3 +22,40 @@ def test_api_list_unknown_kind_defaults_to_meshes(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "MESHES_DIR", str(tmp_path))
     out = server.api_list({"kind": ["meshes"]})
     assert out == {"kind": "meshes", "items": []}
+
+
+def test_jobs_are_queued_serially():
+    gate = threading.Event()
+    seen = []
+
+    def first(_progress):
+        seen.append("first")
+        gate.wait(2)
+        return {"ok": 1}
+
+    def second(_progress):
+        seen.append("second")
+        return {"ok": 2}
+
+    jid1 = server._start_job(first)
+    jid2 = server._start_job(second)
+
+    for _ in range(100):
+        if server.api_job({"id": [jid1]})["status"] == "running":
+            break
+        time.sleep(0.01)
+
+    queued = server.api_job({"id": [jid2]})
+    assert queued["status"] == "queued"
+    assert queued["queue_position"] >= 1
+    assert seen == ["first"]
+
+    gate.set()
+    for _ in range(100):
+        if server.api_job({"id": [jid2]})["status"] == "done":
+            break
+        time.sleep(0.01)
+
+    assert server.api_job({"id": [jid1]})["status"] == "done"
+    assert server.api_job({"id": [jid2]})["result"] == {"ok": 2}
+    assert seen == ["first", "second"]

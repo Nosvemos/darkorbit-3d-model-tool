@@ -38,24 +38,37 @@ def _resolve_meshes(args) -> list[str]:
     raise SystemExit("error: give a mesh name or --all")
 
 
+def _reject_bulk_custom_name(args) -> None:
+    if getattr(args, "all", False) and getattr(args, "output_name", None):
+        raise SystemExit("error: --output-name is only valid for a single asset")
+
+
 # --- subcommands ------------------------------------------------------------
 
 def cmd_convert(args):
+    _reject_bulk_custom_name(args)
     for name in _resolve_meshes(args):
         print(f"=== convert {name} ===")
         out = pipeline.convert(name, gltf=args.gltf, obj=args.obj,
-                               run=not args.no_blender, fx=args.fx)
+                               run=not args.no_blender, fx=args.fx,
+                               overlay=args.overlay or None,
+                               output_name=args.output_name or None)
         print(f"  -> {out}")
 
 
 def cmd_render(args):
+    _reject_bulk_custom_name(args)
     ov = render_mod.overrides_from_args(args)
     for name in _resolve_meshes(args):
         print(f"=== render {name} ===")
-        print(f"  -> {render_mod.render(name, ov, fx=args.fx, clip=args.clip or None)}")
+        out = render_mod.render(name, ov, fx=args.fx, clip=args.clip or None,
+                                overlay=args.overlay or None,
+                                output_name=args.output_name or None)
+        print(f"  -> {out}")
 
 
 def cmd_fx(args):
+    _reject_bulk_custom_name(args)
     names = _stems(config.FX_DIR, "*.zip") if args.all else [args.name] if args.name \
         else None
     if not names:
@@ -63,7 +76,8 @@ def cmd_fx(args):
     for name in names:
         print(f"=== fx {name} ===")
         try:
-            fx_render.render(name, args.frames, args.resolution, args.margin)
+            fx_render.render(name, args.frames, args.resolution, args.margin,
+                             output_name=args.output_name or None)
         except SystemExit as e:
             print(f"  skip: {e}")
 
@@ -131,12 +145,18 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--gltf", action="store_true")
     c.add_argument("--obj", action="store_true")
     c.add_argument("--no-blender", action="store_true")
+    c.add_argument("--overlay", help="mesh name to overlay on top")
+    c.add_argument("--output-name", "--export-name", dest="output_name",
+                   help="basename for exported files (default: mesh name)")
     c.set_defaults(func=cmd_convert)
 
     r = sub.add_parser("render", help="turntable sprite render of a mesh")
     r.add_argument("mesh", nargs="?")
     r.add_argument("--all", action="store_true")
     r.add_argument("--fx", action="store_true", help="render fx_*.awd from fx/")
+    r.add_argument("--overlay", help="mesh name to overlay on top")
+    r.add_argument("--output-name", "--export-name", dest="output_name",
+                   help="basename for exported glb/sprite files (default: mesh name)")
     render_mod.add_render_args(r)
     r.set_defaults(func=cmd_render)
 
@@ -146,6 +166,8 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--frames", type=int, default=30)
     f.add_argument("--resolution", type=int, default=256)
     f.add_argument("--margin", type=float, default=1.2)
+    f.add_argument("--output-name", "--export-name", dest="output_name",
+                   help="basename for exported sprite files (default: effect name)")
     f.set_defaults(func=cmd_fx)
 
     e = sub.add_parser("extract-awp", help="unzip fx/*.zip -> fx/awp/")

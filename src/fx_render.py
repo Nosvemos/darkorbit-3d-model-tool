@@ -64,14 +64,17 @@ def extract_all() -> tuple[int, int]:
     return n, len(zips)
 
 
-def render(name: str, frames: int, resolution: int, margin: float) -> str:
+def render(name: str, frames: int, resolution: int, margin: float,
+           output_name: str | None = None) -> str:
     effect = awp_mod.load(ensure_awp(name))
-    effect.name = name   # name frames after the request, not the (maybe differing) .awp
+    export_name = config.safe_output_name(output_name, name)
+    effect.name = export_name   # name frames after the requested export, not the .awp
     out_dir = os.path.join(config.OUT_DIR, "fx", name, "sprites")
     paths = fx_render.render_effect(effect, out_dir, config.FX_DIR,
                                     config.TEXTURES_DIR, frames=frames,
                                     resolution=resolution, margin=margin)
-    print(f"  {name}: {len(effect.layers)} layers, {len(paths)} frames -> {out_dir}")
+    label = name if export_name == name else f"{name} as {export_name}"
+    print(f"  {label}: {len(effect.layers)} layers, {len(paths)} frames -> {out_dir}")
     return out_dir
 
 
@@ -82,6 +85,8 @@ def main():
     ap.add_argument("--frames", type=int, default=30)
     ap.add_argument("--resolution", type=int, default=256)
     ap.add_argument("--margin", type=float, default=1.2, help="canvas padding factor")
+    ap.add_argument("--output-name", "--export-name", dest="output_name",
+                    help="basename for exported sprite files (default: effect name)")
     args = ap.parse_args()
 
     if args.all:
@@ -91,11 +96,14 @@ def main():
         names = [args.name]
     else:
         ap.error("give an effect name or --all")
+    if args.all and args.output_name:
+        ap.error("--output-name is only valid for a single effect")
 
     for name in names:
         print(f"=== fx {name} ===")
         try:
-            render(name, args.frames, args.resolution, args.margin)
+            render(name, args.frames, args.resolution, args.margin,
+                   output_name=args.output_name)
         except SystemExit as e:
             print(f"  skip: {e}")
 

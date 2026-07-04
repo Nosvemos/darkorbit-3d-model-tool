@@ -104,3 +104,26 @@ def test_render_preset_application(tmp_path, monkeypatch):
     assert cfg["resolution"] == 128
     assert cfg["samples"] == 16
     assert cfg["quality"] == "extra_low"
+
+
+def test_render_uses_custom_output_name(tmp_path, monkeypatch):
+    import json
+    import os
+    from src import render as render_mod
+    from src import config
+
+    monkeypatch.setattr(render_mod, "convert", lambda *args, **kwargs: "/mocked.glb")
+    monkeypatch.setattr(render_mod, "run_cmd", lambda *args, **kwargs: None)
+    monkeypatch.setattr(render_mod, "stable_crop", lambda *args, **kwargs: ({}, {}))
+    monkeypatch.setattr(config, "OUT_DIR", str(tmp_path))
+
+    sprites = config.sprites_dir("dummy", str(tmp_path))
+    os.makedirs(sprites, exist_ok=True)
+    with open(os.path.join(sprites, "renamed_render_raw.json"), "w") as f:
+        json.dump({"resolution": 128, "frames": [], "points": {}}, f)
+
+    render_mod.render("dummy", {}, output_name="renamed.png")
+
+    work_dir = config.work_dir("dummy", str(tmp_path))
+    assert os.path.exists(os.path.join(work_dir, "renamed_render_cfg.json"))
+    assert os.path.exists(os.path.join(work_dir, "renamed_meta.json"))

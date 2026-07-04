@@ -80,21 +80,24 @@ def stable_crop(out_dir: str, raw: dict, padding: int, origin: str) -> dict:
 
 def render(mesh_name: str, overrides: dict, fx: bool = False,
            textures: dict | None = None, clip: str | None = None,
-           overlay: str | None = None, progress=None) -> str:
+           overlay: str | None = None, output_name: str | None = None,
+           progress=None) -> str:
+    export_name = config.safe_output_name(output_name, mesh_name)
     base = config.FX_OUT if fx else config.OUT_DIR
-    glb = os.path.join(config.model_dir(mesh_name, base), f"{mesh_name}.glb")
+    glb = os.path.join(config.model_dir(mesh_name, base), f"{export_name}.glb")
     # rebuild the glb if it's missing or the user picked textures / a clip / an overlay manually
     if textures or clip or overlay or not os.path.exists(glb):
         if progress:
             progress("building glb…")
-        convert(mesh_name, fx=fx, textures=textures, clip=clip, overlay=overlay, progress=progress)
+        convert(mesh_name, fx=fx, textures=textures, clip=clip, overlay=overlay,
+                output_name=export_name, progress=progress)
 
     work = config.work_dir(mesh_name, base)
     sprites = config.sprites_dir(mesh_name, base)
     os.makedirs(work, exist_ok=True)
     os.makedirs(sprites, exist_ok=True)
     # clear previous frames so the sprite set always matches this run's frame count
-    for old in glob.glob(os.path.join(sprites, f"{mesh_name}_*.png")):
+    for old in glob.glob(os.path.join(sprites, f"{export_name}_*.png")):
         os.remove(old)
 
     cfg = dict(config.RENDER_DEFAULTS)
@@ -102,7 +105,7 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
     if quality in config.QUALITY_PRESETS:
         cfg.update(config.QUALITY_PRESETS[quality])
     cfg.update(overrides)
-    cfg_path = os.path.join(work, f"{mesh_name}_render_cfg.json")
+    cfg_path = os.path.join(work, f"{export_name}_render_cfg.json")
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f)
 
@@ -111,7 +114,7 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
     run_cmd([config.BLENDER_EXE, "--background", "--python",
              config.RENDER_SCRIPT, "--", glb, sprites, cfg_path], progress)
 
-    raw_path = os.path.join(sprites, f"{mesh_name}_render_raw.json")
+    raw_path = os.path.join(sprites, f"{export_name}_render_raw.json")
     with open(raw_path, encoding="utf-8") as f:
         raw = json.load(f)
     os.remove(raw_path)  # keep sprites/ tidy
@@ -125,13 +128,13 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
         meta = {"size": [raw["resolution"]] * 2}
     # Coords.json only when there are tracked points (ship mode); item / point-less
     # renders skip it. Flat {point_name: [[x, y] | "OFF", ...]} matches the app format.
-    coords_path = os.path.join(sprites, f"{mesh_name}_Coords.json")
+    coords_path = os.path.join(sprites, f"{export_name}_Coords.json")
     if coords:
         with open(coords_path, "w", encoding="utf-8") as f:
             json.dump(coords, f, indent=4)
     elif os.path.exists(coords_path):
         os.remove(coords_path)  # stale coords from a previous ship-mode run
-    with open(os.path.join(work, f"{mesh_name}_meta.json"), "w",
+    with open(os.path.join(work, f"{export_name}_meta.json"), "w",
               encoding="utf-8") as f:
         json.dump(meta, f, indent=4)
     return sprites
@@ -225,6 +228,8 @@ def main():
     ap.add_argument("--fx", action="store_true",
                     help="render fx_*.awd meshes from fx/ (output under out/fx/)")
     ap.add_argument("--overlay", help="mesh name to overlay/render on top")
+    ap.add_argument("--output-name", "--export-name", dest="output_name",
+                    help="basename for exported glb/sprite files (default: mesh name)")
     add_render_args(ap)
     args = ap.parse_args()
 
@@ -237,10 +242,14 @@ def main():
         names = [args.mesh]
     else:
         ap.error("give a mesh name or --all")
+    if args.all and args.output_name:
+        ap.error("--output-name is only valid for a single mesh")
 
     for name in names:
         print(f"=== render {name} ===")
-        print(f"  -> {render(name, ov, fx=args.fx, clip=args.clip or None, overlay=args.overlay)}")
+        out = render(name, ov, fx=args.fx, clip=args.clip or None,
+                     overlay=args.overlay, output_name=args.output_name)
+        print(f"  -> {out}")
 
 
 if __name__ == "__main__":

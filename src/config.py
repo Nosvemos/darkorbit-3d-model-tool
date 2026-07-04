@@ -10,6 +10,23 @@ FX_DIR = os.path.join(ROOT, "fx")
 OUT_DIR = os.path.join(ROOT, "out")
 
 
+def safe_output_name(name: str | None, fallback: str) -> str:
+    """Return a safe file basename for exported artifacts.
+
+    The source asset name is still used for lookup and folder layout; this only
+    controls generated filenames such as .glb, sprite frames, and Coords.json.
+    """
+    raw = str(name or "").strip() or fallback
+    raw = raw.replace("\\", "/").rsplit("/", 1)[-1]
+    for ext in (".glb", ".gltf", ".obj", ".png", ".json"):
+        if raw.lower().endswith(ext):
+            raw = raw[:-len(ext)]
+            break
+    allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+    cleaned = "".join(ch if ch in allowed else "_" for ch in raw).strip("._-")
+    return cleaned or fallback
+
+
 # --- per-mesh output layout (grouped, professional) ----------------------
 #   out/<mesh>/
 #     model/    <mesh>.glb (+ .gltf/.obj) and textures/

@@ -123,7 +123,8 @@ async function jget(u){ const r = await fetch(u); if(!r.ok) throw new Error((awa
 async function jpost(u,b){ const r = await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}); if(!r.ok) throw new Error((await r.json()).error||r.status); return r.json(); }
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
 // start a background job, poll it, stream its latest log line into the status
-async function runJob(endpoint, body){
+async function runJob(endpoint, body, updateStatus){
+  updateStatus = updateStatus || setStatus;
   const {job} = await jpost(endpoint, body);
   const t0 = Date.now();
   while(true){
@@ -131,7 +132,11 @@ async function runJob(endpoint, body){
     const s = await jget("/api/job?id="+job);
     const secs = ((Date.now()-t0)/1000).toFixed(0);
     const last = s.log && s.log.length ? s.log[s.log.length-1] : "working";
-    if(s.status==="running") setStatus(`(${secs}s) ${last}`.slice(0,90));
+    if(s.status==="queued") {
+      const pos = s.queue_position ? ` #${s.queue_position}` : "";
+      updateStatus(`queued${pos} (${secs}s)`.slice(0,90));
+    }
+    else if(s.status==="running") updateStatus(`(${secs}s) ${last}`.slice(0,90));
     else if(s.status==="done") return s.result;
     else throw new Error(s.error || s.status);
   }
@@ -187,6 +192,7 @@ function renderActions(){
   const a = $("#actions");
   if(isEffect()){
     a.innerHTML = `<div class="row">
+      <label>export name<input type="text" class="opt" data-key="output_name" placeholder="(same)"></label>
       ${num({label:"frames",key:"frames"},30)}
       ${num({label:"resolution",key:"resolution"},256)}
       ${num({label:"margin",key:"margin"},1.2,"0.05")}
@@ -208,6 +214,7 @@ function renderActions(){
       ${num({label:"resolution",key:"resolution"},256)}
       <label>lighting<select class="opt" data-key="world_hdri">${HDRIS.map(h=>`<option value="${h}.exr">${h}</option>`).join("")}</select></label>
       <label>clip<select id="o_clip"><option value="">all</option></select></label>
+      <label>export name<input type="text" class="opt" id="o_output_name" data-key="output_name" placeholder="(same)" style="width:110px"></label>
       <label>overlay<input type="text" class="opt" id="o_overlay" data-key="overlay" placeholder="e.g. sibelonit" style="width:90px"></label>
       <button class="act" id="b_render">Render Sprites</button>
     </div>
@@ -290,30 +297,42 @@ function collectTextures(){
 }
 
 function busy(b){ document.querySelectorAll("#actions button").forEach(x=>x.disabled=b); }
+function sameSelection(s,k){ return sel===s && kind===k; }
 
 async function runConvert(){
+  const s = sel, k = kind;
+  const status = t => { if(sameSelection(s,k)) setStatus(t); };
   busy(true); setStatus("converting… (Blender)");
   try{
-    const r = await runJob("/api/convert",{name:sel, fx:isFx(), gltf:$("#o_gltf").checked, obj:$("#o_obj").checked, textures:collectTextures(), clip:($("#o_clip")||{}).value||"", overlay:($("#o_overlay")||{}).value||""});
-    setStatus("converted ✓"); showLinks({glb:r.glb});
-  }catch(e){ setStatus("error: "+e.message); } finally{ busy(false); }
+    const r = await runJob("/api/convert",{name:s, fx:k==="fx", gltf:$("#o_gltf").checked, obj:$("#o_obj").checked, textures:collectTextures(), clip:($("#o_clip")||{}).value||"", overlay:($("#o_overlay")||{}).value||"", output_name:($("#o_output_name")||{}).value||""}, status);
+    if(sameSelection(s,k)){ setStatus("converted ✓"); showLinks({glb:r.glb}); }
+  }catch(e){ if(sameSelection(s,k)) setStatus("error: "+e.message); }
+  finally{ if(sameSelection(s,k)) busy(false); }
 }
 async function runRender(){
+  const s = sel, k = kind;
+  const status = t => { if(sameSelection(s,k)) setStatus(t); };
   busy(true); setStatus("rendering sprites… (Blender)");
   try{
-    const r = await runJob("/api/render", Object.assign({name:sel, fx:isFx(), textures:collectTextures(), clip:($("#o_clip")||{}).value||""}, collectOpts()));
+    const r = await runJob("/api/render", Object.assign({name:s, fx:k==="fx", textures:collectTextures(), clip:($("#o_clip")||{}).value||""}, collectOpts()), status);
     const fr = (r && r.frames) || [];
-    setStatus(`rendered ${fr.length} frames ✓`);
-    playFrames(fr); showLinks(r || {});
-  }catch(e){ setStatus("error: "+e.message); } finally{ busy(false); }
+    if(sameSelection(s,k)){
+      setStatus(`rendered ${fr.length} frames ✓`);
+      playFrames(fr); showLinks(r || {});
+    }
+  }catch(e){ if(sameSelection(s,k)) setStatus("error: "+e.message); }
+  finally{ if(sameSelection(s,k)) busy(false); }
 }
 async function runFx(){
+  const s = sel, k = kind;
+  const status = t => { if(sameSelection(s,k)) setStatus(t); };
   busy(true); setStatus("simulating particles…");
   try{
-    const r = await runJob("/api/fx", Object.assign({name:sel}, collectOpts()));
+    const r = await runJob("/api/fx", Object.assign({name:s}, collectOpts()), status);
     const fr = (r && r.frames) || [];
-    setStatus(`rendered ${fr.length} frames ✓`); playFrames(fr);
-  }catch(e){ setStatus("error: "+e.message); } finally{ busy(false); }
+    if(sameSelection(s,k)){ setStatus(`rendered ${fr.length} frames ✓`); playFrames(fr); }
+  }catch(e){ if(sameSelection(s,k)) setStatus("error: "+e.message); }
+  finally{ if(sameSelection(s,k)) busy(false); }
 }
 
 function showLinks(r){

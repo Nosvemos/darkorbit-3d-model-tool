@@ -51,6 +51,7 @@ environment variable (see [`src/config.py`](src/config.py)).
 do3d list meshes                     # list convertible meshes
 do3d info sibelon                    # inspect objects, points, clips, textures
 do3d convert sibelon --gltf --obj    # AWD/ATF -> glb (+ gltf, obj)
+do3d convert sibelon --output-name boss_ship
 do3d render sibelon --frames 32      # turntable sprite sequence + Coords.json
 do3d fx explosion0                   # particle effect -> sprite frames
 do3d ui                              # local web UI
@@ -85,6 +86,7 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--obj`        | Also export `.obj` (+ `.mtl`) into `model/obj/`.                  |
 | `--no-blender` | Decode textures and emit the scene JSON only; skip Blender.       |
 | `--overlay NAME`| Overlay another mesh (AWD) on top of the main model.              |
+| `--output-name NAME` | Use a custom basename for exported files. Alias: `--export-name`. |
 
 ### `render`
 
@@ -109,6 +111,7 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--no-rotation`     | off     | Disable Z rotation (turntable) during rendering.     |
 | `--anim-frame-start N`| 1     | Start frame of the animation clip.                   |
 | `--anim-frame-end N`  | —     | End frame of the animation clip.                     |
+| `--output-name NAME`  | mesh name | Custom basename for the GLB, sprite frames, and `Coords.json`. |
 
 **Output & quality**
 
@@ -151,6 +154,7 @@ Bundled HDRIs: `studio` · `city` · `courtyard` · `forest` · `interior` · `n
 | `--frames N`      | 30      | Frames across the effect duration.       |
 | `--resolution PX` | 256     | Square sprite resolution.                |
 | `--margin F`      | 1.2     | Canvas padding factor.                   |
+| `--output-name NAME` | effect name | Custom basename for sprite frames.   |
 
 ## Output structure
 
@@ -187,9 +191,11 @@ do3d ui            # serves http://127.0.0.1:8765
 A single vanilla-JS page served by the Python standard library — no framework, no
 build step. Browse meshes / fx meshes / effects, inspect an asset, and convert or
 render directly from the page. Rendered turntables play back inline; long Blender
-runs stream live progress. Per-channel texture fields let you assign any `.atf`
-when auto-detection misses, and an animation-clip selector picks which clip to
-play. Every action maps to the same functions as the CLI.
+runs stream live progress and queue behind the active job instead of launching
+parallel Blender processes. Per-channel texture fields let you assign any `.atf`
+when auto-detection misses, an export-name field controls output basenames, and
+an animation-clip selector picks which clip to play. Every action maps to the
+same functions as the CLI.
 
 ## FX / particle effects
 

@@ -91,8 +91,10 @@ def decode_textures(mesh_name: str, textures_dir: str, model_out: str,
 
 def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
                      model_out: str, work: str, textures: dict | None = None,
-                     clip: str | None = None, overlay: str | None = None) -> str:
+                     clip: str | None = None, overlay: str | None = None,
+                     output_name: str | None = None) -> str:
     """Parse the AWD and write the intermediate scene JSON. Returns its path."""
+    export_name = config.safe_output_name(output_name, mesh_name)
     scene = parse_file(os.path.join(meshes_dir, f"{mesh_name}.awd"))
     main_textures = decode_textures(mesh_name, textures_dir, model_out, overrides=textures)
 
@@ -139,9 +141,9 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
         overlay_textures = decode_textures(overlay, textures_dir, model_out)
         add_scene_objects(overlay_scene, overlay_textures)
 
-    data = {"name": mesh_name, "objects": objects}
+    data = {"name": export_name, "source": mesh_name, "objects": objects}
     os.makedirs(work, exist_ok=True)
-    json_path = os.path.join(work, f"{mesh_name}.scene.json")
+    json_path = os.path.join(work, f"{export_name}.scene.json")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(data, f)
     return json_path
@@ -180,7 +182,9 @@ def run_blender(scene_json: str, out_glb: str, gltf: bool, obj: bool,
 
 def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
             run: bool = True, fx: bool = False, textures: dict | None = None,
-            clip: str | None = None, overlay: str | None = None, progress=None) -> str:
+            clip: str | None = None, overlay: str | None = None,
+            output_name: str | None = None, progress=None) -> str:
+    export_name = config.safe_output_name(output_name, mesh_name)
     meshes_dir = config.FX_DIR if fx else config.MESHES_DIR
     textures_dir = config.FX_DIR if fx else config.TEXTURES_DIR
     out_base = config.FX_OUT if fx else config.OUT_DIR
@@ -188,8 +192,9 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
     work = config.work_dir(mesh_name, out_base)
     os.makedirs(model, exist_ok=True)
     scene_json = build_scene_json(mesh_name, meshes_dir, textures_dir, model, work,
-                                  textures=textures, clip=clip, overlay=overlay)
-    out_glb = os.path.join(model, f"{mesh_name}.glb")
+                                  textures=textures, clip=clip, overlay=overlay,
+                                  output_name=export_name)
+    out_glb = os.path.join(model, f"{export_name}.glb")
     if run:
         run_blender(scene_json, out_glb, gltf, obj, progress=progress)
     return out_glb
@@ -206,6 +211,8 @@ def main():
     ap.add_argument("--no-blender", action="store_true",
                     help="only emit scene JSON + textures, skip Blender")
     ap.add_argument("--overlay", help="mesh name to overlay/render on top")
+    ap.add_argument("--output-name", "--export-name", dest="output_name",
+                    help="basename for exported files (default: mesh name)")
     args = ap.parse_args()
 
     src_dir = config.FX_DIR if args.fx else config.MESHES_DIR
@@ -216,11 +223,14 @@ def main():
         names = [args.mesh]
     else:
         ap.error("give a mesh name or --all")
+    if args.all and args.output_name:
+        ap.error("--output-name is only valid for a single mesh")
 
     for name in names:
         print(f"=== {name} ===")
         out = convert(name, gltf=args.gltf, obj=args.obj,
-                      run=not args.no_blender, fx=args.fx, overlay=args.overlay)
+                      run=not args.no_blender, fx=args.fx, overlay=args.overlay,
+                      output_name=args.output_name)
         print(f"  -> {out}")
 
 

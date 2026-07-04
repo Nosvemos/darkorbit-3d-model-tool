@@ -1,5 +1,10 @@
 """Tests for texture resolution / detection (no decoding, no Blender)."""
-from src import pipeline
+from src import config, pipeline
+
+
+def test_safe_output_name_sanitizes_user_basename():
+    assert config.safe_output_name("../Fancy Name.glb", "ship") == "Fancy_Name"
+    assert config.safe_output_name("", "ship") == "ship"
 
 
 def test_resolve_atf(tmp_path):
@@ -51,3 +56,29 @@ def test_build_scene_with_overlay(tmp_path):
     names = [obj["name"] for obj in data["objects"]]
     assert "main_inst" in names
     assert "over_inst" in names
+
+
+def test_convert_uses_custom_output_name(tmp_path, monkeypatch):
+    from tests import synth
+    import json
+    import os
+
+    awd = synth.awd_file(
+        synth.geometry_block(1, "main_geom", [1.0, 2.0, 3.0], [0, 0, 0], [])
+        + synth.instance_block(2, "main_inst",
+                               [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], 1)
+    )
+    (tmp_path / "main.awd").write_bytes(awd)
+    out_dir = tmp_path / "out"
+    monkeypatch.setattr(config, "MESHES_DIR", str(tmp_path))
+    monkeypatch.setattr(config, "TEXTURES_DIR", str(tmp_path))
+    monkeypatch.setattr(config, "OUT_DIR", str(out_dir))
+
+    glb = pipeline.convert("main", run=False, output_name="renamed.glb")
+
+    assert glb == os.path.join(str(out_dir), "main", "model", "renamed.glb")
+    scene_json = out_dir / "main" / "work" / "renamed.scene.json"
+    with open(scene_json) as f:
+        data = json.load(f)
+    assert data["name"] == "renamed"
+    assert data["source"] == "main"
