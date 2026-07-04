@@ -69,9 +69,41 @@ def hex_to_rgb(hex_str: str) -> list[float]:
     return [int(hex_str[i:i+2], 16) / 255.0 for i in (0, 2, 4)]
 
 
+def away_to_blender(v: Vector) -> Vector:
+    """Convert an Away3D Y-up vector to the Blender Z-up scene built by us."""
+    return Vector((v.x, -v.z, v.y))
+
+
+def darkorbit_light_direction(tilt, pan) -> Vector:
+    """LightSettings.apply: ExtMath.tiltPan2Vector(tilt, pan, -1)."""
+    t = math.radians(tilt)
+    p = math.radians(pan)
+    away = Vector((-math.sin(t) * math.sin(p),
+                   -math.sin(t) * math.cos(p),
+                   -math.cos(t)))
+    return away_to_blender(away).normalized()
+
+
+def darkorbit_camera_direction(tilt, pan) -> Vector:
+    """Observer3D camera offset direction from lookAt to camera."""
+    t = math.radians(tilt)
+    p = math.radians(pan)
+    away = Vector((math.sin(t) * math.sin(p),
+                   -math.cos(t),
+                   -math.sin(t) * math.cos(p)))
+    return away_to_blender(away).normalized()
+
+
+def fit_camera_distance(radius, fov, margin):
+    half = math.radians(max(1.0, min(float(fov), 179.0)) * 0.5)
+    return max(radius * float(margin) / max(math.sin(half), 0.001),
+               radius * 2.0)
+
+
 def setup_world(cfg):
     hdri_dir = bpy.utils.system_resource("DATAFILES", path="studiolights/world")
-    path = os.path.join(hdri_dir, cfg["world_hdri"])
+    hdri = cfg.get("world_hdri") or ""
+    path = os.path.join(hdri_dir, hdri)
     world = bpy.data.worlds.new("World")
     bpy.context.scene.world = world
     if world.node_tree is None:           # use_nodes deprecated in Blender 6.0
@@ -86,7 +118,7 @@ def setup_world(cfg):
     world_color_hex = cfg.get("world_color", "#ffffff")
     color_rgb = hex_to_rgb(world_color_hex)
 
-    if os.path.exists(path):
+    if cfg.get("use_hdri", True) and hdri and os.path.exists(path):
         env = nt.nodes.new("ShaderNodeTexEnvironment")
         env.image = bpy.data.images.load(path, check_existing=True)
         # Try to multiply the texture with the color using Mix node
@@ -114,25 +146,63 @@ def setup_world(cfg):
 
 
 def setup_sun(cfg):
+    if cfg.get("light_quality") == "low":
+        return None
     data = bpy.data.lights.new("Sun", "SUN")
     data.energy = cfg["sun_energy"]
     sun_color_hex = cfg.get("sun_color", "#ffffff")
     data.color = hex_to_rgb(sun_color_hex)
+    if hasattr(data, "use_shadow"):
+        data.use_shadow = False
     sun = bpy.data.objects.new("Sun", data)
-    sun.rotation_euler = [math.radians(a) for a in cfg["sun_angle"]]
+    if cfg.get("light_model") == "darkorbit":
+        direction = darkorbit_light_direction(cfg.get("sun_tilt", 100.0),
+                                              cfg.get("sun_pan", 35.0))
+        sun.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+    else:
+        sun.rotation_euler = [math.radians(a) for a in cfg["sun_angle"]]
     bpy.context.scene.collection.objects.link(sun)
+    return sun
+
+
+def setup_hero_light(cfg, center, radius):
+    if not (cfg.get("hero_light") or cfg.get("light_quality") == "high"):
+        return None
+    data = bpy.data.lights.new("HeroPositionLight", "POINT")
+    data.color = hex_to_rgb(cfg.get("hero_light_color", "#2e7aff"))
+    data.energy = float(cfg.get("hero_light_energy", 0.6)) * 250.0
+    if hasattr(data, "use_shadow"):
+        data.use_shadow = False
+    if hasattr(data, "use_custom_distance"):
+        data.use_custom_distance = True
+        data.cutoff_distance = max(float(cfg.get("hero_light_radius", 450.0)),
+                                   radius * 2.0)
+    light = bpy.data.objects.new("HeroPositionLight", data)
+    light.location = center
+    bpy.context.scene.collection.objects.link(light)
+    return light
 
 
 def setup_camera(cfg, center, radius):
-    el = math.radians(cfg["cam_elevation"])
-    az = math.radians(cfg["cam_azimuth"])
-    direction = Vector((math.cos(el) * math.cos(az),
-                        math.cos(el) * math.sin(az),
-                        math.sin(el)))
+    if cfg.get("camera_model") == "darkorbit":
+        direction = darkorbit_camera_direction(cfg.get("cam_tilt", 135.0),
+                                               cfg.get("cam_pan", 25.0))
+    else:
+        el = math.radians(cfg["cam_elevation"])
+        az = math.radians(cfg["cam_azimuth"])
+        direction = Vector((math.cos(el) * math.cos(az),
+                            math.cos(el) * math.sin(az),
+                            math.sin(el)))
     cam_data = bpy.data.cameras.new("Cam")
     cam = bpy.data.objects.new("Cam", cam_data)
     bpy.context.scene.collection.objects.link(cam)
-    dist = radius * 4.0
+    fixed_dist = cfg.get("cam_distance")
+    if fixed_dist is not None:
+        dist = float(fixed_dist)
+    elif cfg["cam_ortho"]:
+        dist = radius * 4.0
+    else:
+        dist = fit_camera_distance(radius, cfg["cam_fov"], cfg["cam_margin"])
     cam.location = center + direction * dist
     cam.rotation_euler = (center - cam.location).to_track_quat("-Z", "Y").to_euler()
     # clip range must span the model regardless of its scale, or large assets
@@ -204,7 +274,7 @@ def solo_first_clip():
 
 
 def apply_emission(strength):
-    """Override the Emission Strength of every Principled BSDF (glow tuning)."""
+    """Override material emission strength (GlowMethod shaderParams.glow)."""
     if strength is None:
         return
     for mat in bpy.data.materials:
@@ -213,6 +283,8 @@ def apply_emission(strength):
         for node in mat.node_tree.nodes:
             if node.type == "BSDF_PRINCIPLED" and "Emission Strength" in node.inputs:
                 node.inputs["Emission Strength"].default_value = strength
+            elif node.type == "EMISSION" and "Strength" in node.inputs:
+                node.inputs["Strength"].default_value = strength
 
 
 def cam_coord(scene, cam, world_pos, res):
@@ -238,6 +310,7 @@ def main():
     setup_world(cfg)
     setup_sun(cfg)
     cam = setup_camera(cfg, center, radius)
+    setup_hero_light(cfg, center, radius)
     setup_render(cfg)
     sc = bpy.context.scene
     res = cfg["resolution"]

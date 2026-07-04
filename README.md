@@ -16,12 +16,14 @@ repeatable command, while preserving auxiliary scene nodes (`engine_*`,
 - **AWD parser** — pure-Python AWD2 reader: geometry, named scene-graph instances
   with transforms, materials, and vertex (pose) animation clips.
 - **Export** — glb / gltf / obj via headless Blender, with PBR materials wired
-  from the diffuse / normal / specular / glow channels. Each animation clip is
-  exported as a separate named glTF animation (morph targets).
+  from DarkOrbit texture channels (`diffuse`, `normal`, `specular`, `glow`,
+  `alpha`, `ao`, `gal`). Each animation clip is exported as a separate named
+  glTF animation (morph targets).
 - **Reference points** — `engine_*` / `laserpoint_*` / `light_position` nodes are
   preserved as Empties parented to the main body.
-- **Turntable renderer** — reproducible headless lighting, any frame count,
-  optional per-frame screen coordinates of the reference points.
+- **Turntable renderer** — reproducible headless lighting with a DarkOrbit AS3
+  visual profile, any frame count, optional per-frame screen coordinates of the
+  reference points.
 - **Particle effects** — `.awp` effects simulated and composited to sprite frames.
 - **Interfaces** — unified `do3d` CLI and a dependency-free local web UI.
 
@@ -130,20 +132,33 @@ A mesh name (without extension) is the positional argument for `convert`,
 
 | Option               | Default       | Description                              |
 |----------------------|---------------|------------------------------------------|
-| `--hdri FILE`        | `studio.exr`  | Bundled world HDRI (see below).          |
-| `--world-strength F` | 0.8           | World/HDRI strength.                     |
-| `--sun-energy F`     | 1.5           | Sun lamp energy.                         |
-| `--emission F`       | 0.6           | Glow/emission map multiplier.            |
-| `--elevation D`      | 55            | Camera elevation above the horizon.      |
-| `--azimuth D`        | -90           | Camera azimuth around Z.                 |
-| `--persp`            | ortho         | Perspective camera instead of orthographic. |
+| `--profile NAME`     | `darkorbit`   | Visual profile: `darkorbit` or `studio`. |
+| `--hdri FILE`        | `studio.exr`  | Bundled world HDRI; also enables HDRI.   |
+| `--use-hdri` / `--no-hdri` | off in `darkorbit` | Toggle Blender HDRI world lighting. |
+| `--world-strength F` | 0.2           | DarkOrbit ambient/world strength.        |
+| `--sun-energy F`     | 1.0           | Sun lamp energy.                         |
+| `--emission F`       | 1.0           | Glow/emission map multiplier.            |
+| `--camera-model NAME`| `darkorbit`   | `darkorbit` Observer3D tilt/pan or `orbit`. |
+| `--cam-tilt D`       | 135           | DarkOrbit Observer3D camera tilt.        |
+| `--cam-pan D`        | 25            | DarkOrbit 3D map camera pan.             |
+| `--fov D`            | 30            | Perspective field of view.               |
+| `--cam-distance D`   | fit object    | Fixed camera distance; use 1740 for raw Observer3D distance. |
+| `--elevation D`      | 55            | Orbit-model camera elevation.            |
+| `--azimuth D`        | -90           | Orbit-model camera azimuth around Z.     |
+| `--persp` / `--ortho`| perspective   | Force camera projection.                 |
+| `--light-model NAME` | `darkorbit`   | DarkOrbit LightSettings tilt/pan or Blender Euler sun. |
+| `--sun-tilt D`       | 100           | DarkOrbit sun `directionTilt`.           |
+| `--sun-pan D`        | 35            | DarkOrbit sun `directionPan`.            |
+| `--light-quality NAME` | `medium`    | `low` disables sun; `high` adds hero point light. |
+| `--hero-light` / `--no-hero-light` | off | Toggle hero-position point light. |
 | `--margin F`         | 1.15          | Framing padding factor (> 1 zooms out).  |
 | `--sun-color HEX`    | `#ffffff`     | Sun light color.                         |
-| `--world-color HEX`  | `#ffffff`     | World background light color.            |
+| `--world-color HEX`  | `#ffb2ae`     | DarkOrbit ambient color.                 |
 | `--overlay NAME`     | —             | Overlay another mesh (AWD) on top of the main model. |
 
 Bundled HDRIs: `studio` · `city` · `courtyard` · `forest` · `interior` · `night`
-· `sunrise` · `sunset`. All defaults live in `RENDER_DEFAULTS`
+· `sunrise` · `sunset`. They are used by `--profile studio` or `--use-hdri`.
+All defaults live in `RENDER_DEFAULTS`
 ([`src/config.py`](src/config.py)).
 
 ### `fx`
@@ -218,7 +233,7 @@ The plain `fx_*.awd` meshes (rings, spheres, shards) convert and render with the
 ```
 .awd ──▶ AWD2 parser ──▶ geometry + named nodes + transforms ─┐
                                                               ├─▶ scene JSON ──▶ Blender ──▶ glb / gltf / obj
-.atf ──▶ ATF decoder ──▶ PNG (diffuse/normal/specular/glow) ──┘                  │
+.atf ──▶ ATF decoder ──▶ PNG (diffuse/normal/specular/glow/alpha/ao/gal) ──┘     │
                                                                                  └──▶ turntable render ──▶ sprites + Coords.json
 ```
 

@@ -31,13 +31,17 @@ def test_command_required():
 def test_render_overrides_mapping():
     ap = build_parser()
     a = ap.parse_args(["render", "m", "--frames", "8", "--persp",
-                       "--no-crop", "--mode", "item", "--hdri", "city.exr"])
+                       "--no-crop", "--mode", "item", "--hdri", "city.exr",
+                       "--profile", "studio", "--sun-pan", "35"])
     ov = render_mod.overrides_from_args(a)
     assert ov["frames"] == 8
     assert ov["cam_ortho"] is False
     assert ov["stable_crop"] is False
     assert ov["mode"] == "item"
     assert ov["world_hdri"] == "city.exr"
+    assert ov["use_hdri"] is True
+    assert ov["profile"] == "studio"
+    assert ov["sun_pan"] == 35
 
 
 def test_render_overrides_only_set_flags():

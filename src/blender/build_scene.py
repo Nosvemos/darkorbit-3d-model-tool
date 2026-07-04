@@ -114,6 +114,7 @@ def load_image(path, non_color=False):
 
 def build_material(name, textures):
     mat = bpy.data.materials.new(name)
+    mat.use_backface_culling = False
     if mat.node_tree is None:             # use_nodes deprecated in Blender 6.0
         mat.use_nodes = True
     nt = mat.node_tree
@@ -122,27 +123,119 @@ def build_material(name, textures):
     bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
     nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
 
+    def input_any(node, names):
+        for input_name in names:
+            if input_name in node.inputs:
+                return node.inputs[input_name]
+        return None
+
+    def set_input(node, names, value):
+        socket = input_any(node, names)
+        if socket is not None:
+            socket.default_value = value
+
+    set_input(bsdf, ["Metallic"], 0.0)
+    set_input(bsdf, ["Specular IOR Level", "Specular"], 1.0)
+    # Away3D EntityBasicMaterial defaults gloss=50; this is the closest roughness
+    # approximation in Blender's PBR model.
+    set_input(bsdf, ["Roughness"], 0.2)
+
     def tex(path, non_color=False, x=-600, y=0):
         img = load_image(path, non_color)
         if not img:
             return None
         node = nt.nodes.new("ShaderNodeTexImage")
         node.image = img
+        node.extension = "REPEAT"          # EntityBasicMaterial.repeat = true
+        node.interpolation = "Linear"      # TEXTURE_FILTERING.medium/high
         node.location = (x, y)
         return node
 
+    def multiply_color(a, b, x=-250, y=250):
+        mix = nt.nodes.new("ShaderNodeMixRGB")
+        mix.blend_type = "MULTIPLY"
+        mix.inputs["Fac"].default_value = 1.0
+        mix.location = (x, y)
+        nt.links.new(a, mix.inputs["Color1"])
+        nt.links.new(b, mix.inputs["Color2"])
+        return mix.outputs["Color"]
+
+    def scalar_to_color(value_socket, x=-430, y=80):
+        try:
+            comb = nt.nodes.new("ShaderNodeCombineColor")
+            inputs = ("Red", "Green", "Blue")
+            output = "Color"
+        except RuntimeError:
+            comb = nt.nodes.new("ShaderNodeCombineRGB")
+            inputs = ("R", "G", "B")
+            output = "Image"
+        comb.location = (x, y)
+        for input_name in inputs:
+            nt.links.new(value_socket, comb.inputs[input_name])
+        return comb.outputs[output]
+
+    def separate_rgb(color_socket, x=-320, y=-220):
+        try:
+            sep = nt.nodes.new("ShaderNodeSeparateColor")
+        except RuntimeError:
+            sep = nt.nodes.new("ShaderNodeSeparateRGB")
+        sep.location = (x, y)
+        nt.links.new(color_socket, sep.inputs[0])
+        return sep
+
+    def sep_out(sep, names):
+        for output_name in names:
+            if output_name in sep.outputs:
+                return sep.outputs[output_name]
+        return None
+
     diffuse = tex(textures.get("diffuse"), y=300)
+    base_color = diffuse.outputs["Color"] if diffuse else None
+
+    ao = tex(textures.get("ao"), non_color=True, y=100)
+    if base_color is not None and ao:
+        base_color = multiply_color(base_color, ao.outputs["Color"], y=220)
+
+    gal = tex(textures.get("gal"), non_color=True, y=-170)
+    gal_sep = separate_rgb(gal.outputs["Color"], y=-170) if gal else None
+    if base_color is not None and gal_sep:
+        gal_lightmap = sep_out(gal_sep, ["Blue", "B"])
+        if gal_lightmap:
+            base_color = multiply_color(base_color, scalar_to_color(gal_lightmap), y=120)
+
     if diffuse:
-        nt.links.new(diffuse.outputs["Color"], bsdf.inputs["Base Color"])
+        nt.links.new(base_color, bsdf.inputs["Base Color"])
 
     specular = tex(textures.get("specular"), non_color=True, y=0)
-    if specular and "Specular IOR Level" in bsdf.inputs:
-        nt.links.new(specular.outputs["Color"], bsdf.inputs["Specular IOR Level"])
+    specular_input = input_any(bsdf, ["Specular IOR Level", "Specular"])
+    if specular and specular_input is not None:
+        nt.links.new(specular.outputs["Color"], specular_input)
 
     glow = tex(textures.get("glow"), y=-300)
     if glow:
-        nt.links.new(glow.outputs["Color"], bsdf.inputs["Emission Color"])
-        bsdf.inputs["Emission Strength"].default_value = 1.0
+        emission_color = input_any(bsdf, ["Emission Color"])
+        emission_strength = input_any(bsdf, ["Emission Strength"])
+        if emission_color is not None:
+            nt.links.new(glow.outputs["Color"], emission_color)
+        if emission_strength is not None:
+            emission_strength.default_value = 1.0
+    elif gal and "Emission Color" in bsdf.inputs:
+        nt.links.new(gal.outputs["Color"], bsdf.inputs["Emission Color"])
+        if "Emission Strength" in bsdf.inputs:
+            bsdf.inputs["Emission Strength"].default_value = 1.0
+
+    alpha = tex(textures.get("alpha"), non_color=True, y=-460)
+    alpha_input = input_any(bsdf, ["Alpha"])
+    alpha_source = None
+    if alpha:
+        alpha_source = alpha.outputs["Alpha"] if "Alpha" in alpha.outputs else alpha.outputs["Color"]
+    elif gal_sep:
+        alpha_source = sep_out(gal_sep, ["Green", "G"])
+    if alpha_source is not None and alpha_input is not None:
+        nt.links.new(alpha_source, alpha_input)
+        mat.blend_method = "BLEND"
+        if hasattr(mat, "show_transparent_back"):
+            mat.show_transparent_back = True
 
     normal = tex(textures.get("normal"), non_color=True, y=-600)
     if normal:

@@ -60,9 +60,54 @@ BLENDER_EXE = os.environ.get(
 BUILD_SCENE_SCRIPT = os.path.join(ROOT, "src", "blender", "build_scene.py")
 RENDER_SCRIPT = os.path.join(ROOT, "src", "blender", "render_sprites.py")
 
+# Named visual profiles applied before per-run overrides. The default profile is
+# based on the AS3 client: MapView3D uses PerspectiveLens(30), Observer3D starts
+# at tilt=135/pan=25, and LightSettings drives a directional sun by tilt/pan.
+RENDER_PROFILES = {
+    "darkorbit": {
+        "camera_model": "darkorbit",
+        "light_model": "darkorbit",
+        "use_hdri": False,
+        "world_strength": 0.2,
+        "world_color": "#ffb2ae",
+        "sun_energy": 1.0,
+        "sun_color": "#ffffff",
+        "sun_tilt": 100.0,
+        "sun_pan": 35.0,
+        "emission_strength": 1.0,
+        "cam_ortho": False,
+        "cam_fov": 30.0,
+        "cam_tilt": 135.0,
+        "cam_pan": 25.0,
+        "cam_distance": None,
+        "light_quality": "medium",
+        "hero_light": False,
+    },
+    "studio": {
+        "camera_model": "orbit",
+        "light_model": "blender",
+        "use_hdri": True,
+        "world_hdri": "studio.exr",
+        "world_strength": 0.8,
+        "world_color": "#ffffff",
+        "sun_energy": 1.5,
+        "sun_color": "#ffffff",
+        "sun_angle": [50.0, 0.0, 40.0],
+        "emission_strength": 0.6,
+        "cam_ortho": True,
+        "cam_fov": 35.0,
+        "cam_elevation": 55.0,
+        "cam_azimuth": -90.0,
+        "cam_distance": None,
+        "light_quality": "medium",
+        "hero_light": False,
+    },
+}
+
 # Default render settings. Override per-run via src.render CLI flags; the whole
 # dict is passed to Blender as JSON so every knob is configurable in one place.
 RENDER_DEFAULTS = {
+    "profile": "darkorbit",
     # ship  -> track engine_/laserpoint_ points, write <mesh>_Coords.json
     # item  -> plain render (ore, items like lf4, ...), no point tracking / no JSON
     # auto  -> ship behaviour if any point empties exist, else item
@@ -82,20 +127,33 @@ RENDER_DEFAULTS = {
     "anim_frame_start": 1,     # start frame for animation clip
     "anim_frame_end": None,    # end frame for animation clip (None = end of clip)
 
-    "world_hdri": "studio.exr",  # bundled Blender studio light (world env)
-    "world_strength": 0.8,
-    "world_color": "#ffffff",  # tint for the world background light
+    "camera_model": "darkorbit",  # darkorbit Observer3D tilt/pan, or orbit
+    "light_model": "darkorbit",   # darkorbit LightSettings tilt/pan, or blender
+    "use_hdri": False,
+    "world_hdri": "studio.exr",   # bundled Blender studio light (when use_hdri)
+    "world_strength": 0.2,
+    "world_color": "#ffb2ae",     # DarkOrbit map ambientColor default
 
-    "sun_energy": 1.5,
+    "sun_energy": 1.0,
     "sun_color": "#ffffff",    # light color for the sun
     "sun_angle": [50.0, 0.0, 40.0],   # degrees, XYZ euler
-    "emission_strength": 0.6,  # glow/emission map multiplier (lower = subtler)
+    "sun_tilt": 100.0,         # DarkOrbit Settings3D.sunLight.directionTilt
+    "sun_pan": 35.0,           # DarkOrbit Settings3D.sunLight.directionPan
+    "light_quality": "medium", # low: no sun; medium: sun; high: sun + hero point
+    "hero_light": False,       # optional high-quality hero-position point light
+    "hero_light_color": "#2e7aff",
+    "hero_light_energy": 0.6,
+    "hero_light_radius": 450.0,
+    "emission_strength": 1.0,  # GlowMethod shaderParams.glow default
 
-    "cam_elevation": 55.0,     # degrees above horizon (DarkOrbit ~ top-down)
-    "cam_azimuth": -90.0,      # degrees around Z; -90 puts model +X at screen right
+    "cam_elevation": 55.0,     # orbit fallback: degrees above horizon
+    "cam_azimuth": -90.0,      # orbit fallback: degrees around Z
+    "cam_tilt": 135.0,         # DarkOrbit Observer3D.start_cameraTilt
+    "cam_pan": 25.0,           # CameraManager3D.START_PAN on 3D maps
+    "cam_distance": None,      # None = fit object; set 1740 for raw Observer3D distance
     "start_angle": 90.0,       # turntable rotation at frame 0 (front faces screen right)
-    "cam_ortho": True,         # orthographic (sprite-style) vs perspective
-    "cam_fov": 35.0,           # perspective FOV (used when cam_ortho=False)
+    "cam_ortho": False,        # MapView3D uses PerspectiveLens, not ortho
+    "cam_fov": 30.0,           # PerspectiveLens(30)
     "cam_margin": 1.15,        # frame padding factor (>1 zooms out)
 
     "coord_prefixes": ["engine_", "laserpoint_"],  # which empties go in Coords.json
@@ -105,7 +163,7 @@ RENDER_DEFAULTS = {
 }
 
 # Texture channels resolved by filename convention: <mesh>_<channel>_512.atf
-CHANNELS = ("diffuse", "normal", "specular", "glow")
+CHANNELS = ("diffuse", "normal", "specular", "glow", "alpha", "ao", "gal")
 TEXTURE_SUFFIX = "_512"
 
 # Scene-node name prefixes treated as reference points (exported as Empties in glb).

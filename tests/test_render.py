@@ -56,7 +56,10 @@ def test_render_args_overrides():
     args = parser.parse_args([
         "--no-rotation", "--anim-frame-start", "5", "--anim-frame-end", "15",
         "--sun-color", "#ffcc00", "--world-color", "#00ffcc",
-        "--sun-energy", "2.5", "--world-strength", "1.2", "--quality", "high"
+        "--sun-energy", "2.5", "--world-strength", "1.2", "--quality", "high",
+        "--profile", "darkorbit", "--cam-tilt", "135", "--cam-pan", "25",
+        "--fov", "30", "--sun-tilt", "100", "--sun-pan", "35",
+        "--light-quality", "high", "--hero-light", "--no-hdri", "--ortho"
     ])
     ov = overrides_from_args(args)
     assert ov["rotation"] is False
@@ -67,6 +70,16 @@ def test_render_args_overrides():
     assert ov["sun_energy"] == 2.5
     assert ov["world_strength"] == 1.2
     assert ov["quality"] == "high"
+    assert ov["profile"] == "darkorbit"
+    assert ov["cam_tilt"] == 135
+    assert ov["cam_pan"] == 25
+    assert ov["cam_fov"] == 30
+    assert ov["sun_tilt"] == 100
+    assert ov["sun_pan"] == 35
+    assert ov["light_quality"] == "high"
+    assert ov["hero_light"] is True
+    assert ov["use_hdri"] is False
+    assert ov["cam_ortho"] is True
 
 
 def test_render_preset_application(tmp_path, monkeypatch):

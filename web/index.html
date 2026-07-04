@@ -201,6 +201,7 @@ function renderActions(){
     return;
   }
   a.innerHTML = `<div class="row">
+      <label>profile<select class="opt" data-key="profile" id="o_profile"><option value="darkorbit" selected>darkorbit</option><option value="studio">studio</option></select></label>
       <label>mode<select class="opt" data-key="mode"><option>auto</option><option>ship</option><option>item</option></select></label>
       <label>quality<select class="opt" data-key="quality" id="o_quality">
         <option value="extra_low">extra low</option>
@@ -221,7 +222,7 @@ function renderActions(){
     <div style="margin-top:12px">
       <div class="mut" style="font-size:12px;margin-bottom:6px">Textures (.atf — leave blank for auto)</div>
       <div class="row">
-        ${["diffuse","normal","specular","glow"].map(c=>`<label>${c}<input class="tex" data-ch="${c}" list="atflist" placeholder="(auto)"></label>`).join("")}
+        ${["diffuse","normal","specular","glow","alpha","ao","gal"].map(c=>`<label>${c}<input class="tex" data-ch="${c}" list="atflist" placeholder="(auto)"></label>`).join("")}
       </div>
     </div>
     <details style="margin-top:10px">
@@ -229,19 +230,30 @@ function renderActions(){
       <div class="row" style="margin-top:10px">
         ${num({label:"elevation°",key:"cam_elevation"},55)}
         ${num({label:"azimuth°",key:"cam_azimuth"},-90)}
+        ${num({label:"cam tilt°",key:"cam_tilt"},135)}
+        ${num({label:"cam pan°",key:"cam_pan"},25)}
+        ${num({label:"FOV°",key:"cam_fov"},30)}
+        ${num({label:"cam dist",key:"cam_distance"},"")}
         ${num({label:"start angle°",key:"start_angle"},90)}
         ${num({label:"total°",key:"total_degrees"},360)}
         ${num({label:"margin",key:"cam_margin"},1.15,"0.05")}
         ${num({label:"samples",key:"samples"},96)}
-        ${num({label:"emission",key:"emission_strength"},0.6,"0.1")}
+        ${num({label:"emission",key:"emission_strength"},1,"0.1")}
         ${num({label:"anim start",key:"anim_frame_start"},1)}
         ${num({label:"anim end",key:"anim_frame_end"},"")}
-        ${num({label:"world str",key:"world_strength"},0.8,"0.1")}
-        ${num({label:"sun energy",key:"sun_energy"},1.5,"0.1")}
-        ${color({label:"world color",key:"world_color"},"#ffffff")}
+        ${num({label:"world str",key:"world_strength"},0.2,"0.1")}
+        ${num({label:"sun energy",key:"sun_energy"},1,"0.1")}
+        ${num({label:"sun tilt°",key:"sun_tilt"},100)}
+        ${num({label:"sun pan°",key:"sun_pan"},35)}
+        ${color({label:"world color",key:"world_color"},"#ffb2ae")}
         ${color({label:"sun color",key:"sun_color"},"#ffffff")}
+        <label>camera<select class="opt" data-key="camera_model"><option value="darkorbit">darkorbit</option><option value="orbit">orbit</option></select></label>
+        <label>light<select class="opt" data-key="light_model"><option value="darkorbit">darkorbit</option><option value="blender">blender</option></select></label>
+        <label>light quality<select class="opt" data-key="light_quality"><option>medium</option><option>low</option><option>high</option></select></label>
         <label>view<select class="opt" data-key="view_transform"><option>Standard</option><option>AgX</option><option>Filmic</option></select></label>
-        <label class="chk"><input type="checkbox" class="optbool" data-key="cam_ortho" data-invert="1" checked> orthographic</label>
+        <label class="chk"><input type="checkbox" class="optbool" data-key="use_hdri" data-invert="1"> HDRI</label>
+        <label class="chk"><input type="checkbox" class="optbool" data-key="hero_light" data-invert="1"> hero light</label>
+        <label class="chk"><input type="checkbox" class="optbool" data-key="cam_ortho" data-invert="1"> orthographic</label>
         <label class="chk"><input type="checkbox" class="optbool" data-key="rotation" data-invert="1" checked> rotation</label>
       </div>
     </details>
@@ -270,6 +282,32 @@ function renderActions(){
   };
   document.querySelector('.opt[data-key="resolution"]').oninput = onManualChange;
   document.querySelector('.opt[data-key="samples"]').oninput = onManualChange;
+
+  const profiles = {
+    darkorbit: {
+      camera_model:"darkorbit", light_model:"darkorbit", use_hdri:false,
+      world_strength:0.2, world_color:"#ffb2ae", sun_energy:1, sun_color:"#ffffff",
+      sun_tilt:100, sun_pan:35, emission_strength:1, cam_ortho:false,
+      cam_fov:30, cam_tilt:135, cam_pan:25, cam_distance:"",
+      light_quality:"medium", hero_light:false
+    },
+    studio: {
+      camera_model:"orbit", light_model:"blender", use_hdri:true,
+      world_strength:0.8, world_color:"#ffffff", sun_energy:1.5, sun_color:"#ffffff",
+      sun_tilt:100, sun_pan:35, emission_strength:0.6, cam_ortho:true,
+      cam_fov:35, cam_tilt:135, cam_pan:25, cam_distance:"",
+      light_quality:"medium", hero_light:false
+    }
+  };
+  $("#o_profile").onchange = (e) => {
+    const p = profiles[e.target.value] || profiles.darkorbit;
+    Object.entries(p).forEach(([key,val])=>{
+      const el = document.querySelector(`#actions .opt[data-key="${key}"]`);
+      if(el) el.value = val;
+      const b = document.querySelector(`#actions .optbool[data-key="${key}"]`);
+      if(b) b.checked = !!val;
+    });
+  };
 
   $("#b_render").onclick = runRender;
   $("#b_convert").onclick = runConvert;

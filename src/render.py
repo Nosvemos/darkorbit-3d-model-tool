@@ -6,8 +6,8 @@ coordinate adjustment in system Python (Pillow).
 
 Usage:
     python -m src.render sibelon
-    python -m src.render sibelon --frames 36 --resolution 512 --persp
-    python -m src.render sibelon --hdri city.exr --elevation 60 --azimuth 30
+    python -m src.render sibelon --frames 36 --resolution 512
+    python -m src.render sibelon --profile studio --hdri city.exr
     python -m src.render --all
 """
 from __future__ import annotations
@@ -101,6 +101,9 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
         os.remove(old)
 
     cfg = dict(config.RENDER_DEFAULTS)
+    profile = overrides.get("profile") or cfg.get("profile")
+    if profile in config.RENDER_PROFILES:
+        cfg.update(config.RENDER_PROFILES[profile])
     quality = overrides.get("quality") or cfg.get("quality")
     if quality in config.QUALITY_PRESETS:
         cfg.update(config.QUALITY_PRESETS[quality])
@@ -142,7 +145,7 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
 
 # CLI flag name -> RENDER_DEFAULTS key (only flags the user set are applied)
 _FLAG_TO_KEY = {
-    "mode": "mode",
+    "profile": "profile", "mode": "mode",
     "frames": "frames", "total_degrees": "total_degrees",
     "deg_per_frame": "deg_per_frame", "start_angle": "start_angle",
     "frame_start": "frame_start", "resolution": "resolution",
@@ -150,7 +153,11 @@ _FLAG_TO_KEY = {
     "origin": "coord_origin", "hdri": "world_hdri",
     "world_strength": "world_strength", "sun_energy": "sun_energy",
     "emission": "emission_strength", "elevation": "cam_elevation",
-    "azimuth": "cam_azimuth", "margin": "cam_margin",
+    "azimuth": "cam_azimuth", "cam_tilt": "cam_tilt", "cam_pan": "cam_pan",
+    "cam_fov": "cam_fov", "cam_distance": "cam_distance",
+    "camera_model": "camera_model",
+    "sun_tilt": "sun_tilt", "sun_pan": "sun_pan", "light_model": "light_model",
+    "light_quality": "light_quality", "margin": "cam_margin",
     "anim_frame_start": "anim_frame_start", "anim_frame_end": "anim_frame_end",
     "sun_color": "sun_color", "world_color": "world_color",
     "quality": "quality",
@@ -159,6 +166,8 @@ _FLAG_TO_KEY = {
 
 def add_render_args(ap):
     """Attach the render flags to a parser (shared by `render` and the CLI)."""
+    ap.add_argument("--profile", choices=sorted(config.RENDER_PROFILES),
+                    help="visual profile (default: darkorbit)")
     ap.add_argument("--mode", choices=["auto", "ship", "item"],
                     help="ship: track points + Coords.json; item: plain render, "
                          "no points; auto: ship if points exist (default)")
@@ -192,13 +201,40 @@ def add_render_args(ap):
 
     g = ap.add_argument_group("camera / lighting")
     g.add_argument("--hdri", help="bundled world HDRI, e.g. studio.exr / city.exr")
+    g.add_argument("--use-hdri", action="store_true",
+                   help="enable Blender world HDRI lighting")
+    g.add_argument("--no-hdri", action="store_true",
+                   help="disable Blender world HDRI lighting")
     g.add_argument("--world-strength", type=float, dest="world_strength")
     g.add_argument("--sun-energy", type=float, dest="sun_energy")
     g.add_argument("--emission", type=float, help="glow emission strength")
+    g.add_argument("--camera-model", choices=["darkorbit", "orbit"],
+                   dest="camera_model")
     g.add_argument("--elevation", type=float)
     g.add_argument("--azimuth", type=float)
-    g.add_argument("--persp", action="store_true", help="perspective (default ortho)")
+    g.add_argument("--cam-tilt", type=float, dest="cam_tilt",
+                   help="DarkOrbit Observer3D tilt")
+    g.add_argument("--cam-pan", type=float, dest="cam_pan",
+                   help="DarkOrbit Observer3D pan")
+    g.add_argument("--fov", "--cam-fov", type=float, dest="cam_fov",
+                   help="perspective camera field of view")
+    g.add_argument("--cam-distance", type=float, dest="cam_distance",
+                   help="fixed camera distance; omitted means fit object")
+    g.add_argument("--persp", action="store_true", help="force perspective camera")
+    g.add_argument("--ortho", action="store_true", help="force orthographic camera")
     g.add_argument("--margin", type=float, help="frame padding factor (>1 zooms out)")
+    g.add_argument("--light-model", choices=["darkorbit", "blender"],
+                   dest="light_model")
+    g.add_argument("--sun-tilt", type=float, dest="sun_tilt",
+                   help="DarkOrbit sun directionTilt")
+    g.add_argument("--sun-pan", type=float, dest="sun_pan",
+                   help="DarkOrbit sun directionPan")
+    g.add_argument("--light-quality", choices=["low", "medium", "high"],
+                   dest="light_quality")
+    g.add_argument("--hero-light", action="store_true",
+                   help="enable DarkOrbit hero-position point light")
+    g.add_argument("--no-hero-light", action="store_true",
+                   help="disable DarkOrbit hero-position point light")
     g.add_argument("--sun-color", dest="sun_color", help="sun light color (hex)")
     g.add_argument("--world-color", dest="world_color", help="world background light color (hex)")
 
@@ -210,8 +246,20 @@ def overrides_from_args(args) -> dict:
         val = getattr(args, flag, None)
         if val is not None:
             ov[key] = val
+    if getattr(args, "hdri", None):
+        ov["use_hdri"] = True
+    if getattr(args, "use_hdri", False):
+        ov["use_hdri"] = True
+    if getattr(args, "no_hdri", False):
+        ov["use_hdri"] = False
     if getattr(args, "persp", False):
         ov["cam_ortho"] = False
+    if getattr(args, "ortho", False):
+        ov["cam_ortho"] = True
+    if getattr(args, "hero_light", False):
+        ov["hero_light"] = True
+    if getattr(args, "no_hero_light", False):
+        ov["hero_light"] = False
     if getattr(args, "no_crop", False):
         ov["stable_crop"] = False
     if getattr(args, "no_transparent", False):
