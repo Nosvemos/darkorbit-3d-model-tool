@@ -76,9 +76,36 @@ def test_convert_uses_custom_output_name(tmp_path, monkeypatch):
 
     glb = pipeline.convert("main", run=False, output_name="renamed.glb")
 
-    assert glb == os.path.join(str(out_dir), "main", "model", "renamed.glb")
-    scene_json = out_dir / "main" / "work" / "renamed.scene.json"
+    assert glb == os.path.join(str(out_dir), "renamed", "model", "renamed.glb")
+    scene_json = out_dir / "renamed" / "work" / "renamed.scene.json"
     with open(scene_json) as f:
         data = json.load(f)
     assert data["name"] == "renamed"
     assert data["source"] == "main"
+
+
+def test_convert_with_hidden_objects(tmp_path, monkeypatch):
+    from tests import synth
+    import json
+    import os
+
+    awd = synth.awd_file(
+        synth.geometry_block(1, "main_geom", [1.0, 2.0, 3.0], [0, 0, 0], [])
+        + synth.instance_block(2, "visible_inst", [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], 1)
+        + synth.instance_block(3, "hidden_inst", [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], 1)
+    )
+    (tmp_path / "main.awd").write_bytes(awd)
+    out_dir = tmp_path / "out"
+    monkeypatch.setattr(config, "MESHES_DIR", str(tmp_path))
+    monkeypatch.setattr(config, "TEXTURES_DIR", str(tmp_path))
+    monkeypatch.setattr(config, "OUT_DIR", str(out_dir))
+
+    glb = pipeline.convert("main", run=False, hide_objects=["hidden_inst"])
+    scene_json = out_dir / "main" / "work" / "main.scene.json"
+    with open(scene_json) as f:
+        data = json.load(f)
+
+    visible_obj = next(o for o in data["objects"] if o["name"] == "visible_inst")
+    hidden_obj = next(o for o in data["objects"] if o["name"] == "hidden_inst")
+    assert visible_obj["hide"] is False
+    assert hidden_obj["hide"] is True

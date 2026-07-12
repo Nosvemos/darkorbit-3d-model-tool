@@ -315,6 +315,13 @@ def main():
     sc = bpy.context.scene
     res = cfg["resolution"]
 
+    hide_list = cfg.get("hide_objects") or []
+    if hide_list:
+        for o in sc.objects:
+            if any(h in o.name for h in hide_list):
+                o.hide_viewport = True
+                o.hide_render = True
+
     # item mode renders a plain model (ore / items) with no reference points;
     # ship/auto track the engine_/laserpoint_ empties for the coordinates JSON.
     coord_prefixes = tuple(cfg.get("coord_prefixes", POINT_PREFIXES))
@@ -322,7 +329,7 @@ def main():
         points = []
     else:
         points = [o for o in sc.objects
-                  if o.type == "EMPTY" and o.name.startswith(coord_prefixes)]
+                  if o.type == "EMPTY" and o.name.startswith(coord_prefixes) and not o.hide_render]
     coords = {p.name: [] for p in points}
     frame_paths = []
 

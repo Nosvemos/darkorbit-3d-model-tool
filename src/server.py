@@ -95,6 +95,7 @@ def api_convert(body, progress=None):
                            clip=body.get("clip") or None,
                            overlay=body.get("overlay") or None,
                            output_name=body.get("output_name") or None,
+                           hide_objects=body.get("hide_objects") or None,
                            progress=progress)
     return {"ok": True, "glb": _rel_url(glb)}
 
@@ -111,7 +112,7 @@ def api_render(body, progress=None):
                                 output_name=export_name, progress=progress)
     base = config.FX_OUT if fx else config.OUT_DIR
     coords = os.path.join(sprites, f"{export_name}_Coords.json")
-    glb = os.path.join(config.model_dir(name, base), f"{export_name}.glb")
+    glb = os.path.join(config.model_dir(export_name, base), f"{export_name}.glb")
     return {"ok": True, "frames": _frame_urls(sprites, export_name),
             "coords": _rel_url(coords) if os.path.exists(coords) else None,
             "glb": _rel_url(glb) if os.path.exists(glb) else None}

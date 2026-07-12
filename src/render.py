@@ -32,33 +32,36 @@ def _clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
 
-def stable_crop(out_dir: str, raw: dict, padding: int, origin: str) -> dict:
+def stable_crop(out_dir: str, raw: dict, padding: int, origin: str, align_box: list[int] | None = None) -> dict:
     """Crop every frame to one global alpha+point bbox; return adjusted coords."""
     res = raw["resolution"]
     paths = [os.path.join(out_dir, fn) for fn in raw["frames"]]
     points = raw["points"]
 
-    gx1 = gy1 = res
-    gx2 = gy2 = 0
-    for i, path in enumerate(paths):
-        alpha = Image.open(path).convert("RGBA").split()[-1]
-        bbox = alpha.point(lambda p: 255 if p > 10 else 0).getbbox()
-        if not bbox:
-            continue
-        x1, y1, x2, y2 = bbox
-        for vals in points.values():
-            v = vals[i]
-            if v:
-                x1, y1 = min(x1, int(v[0])), min(y1, int(v[1]))
-                x2, y2 = max(x2, int(v[0])), max(y2, int(v[1]))
-        gx1, gy1 = min(gx1, x1 - padding), min(gy1, y1 - padding)
-        gx2, gy2 = max(gx2, x2 + padding), max(gy2, y2 + padding)
+    if align_box:
+        gx1, gy1, gx2, gy2 = align_box
+    else:
+        gx1 = gy1 = res
+        gx2 = gy2 = 0
+        for i, path in enumerate(paths):
+            alpha = Image.open(path).convert("RGBA").split()[-1]
+            bbox = alpha.point(lambda p: 255 if p > 10 else 0).getbbox()
+            if not bbox:
+                continue
+            x1, y1, x2, y2 = bbox
+            for vals in points.values():
+                v = vals[i]
+                if v:
+                    x1, y1 = min(x1, int(v[0])), min(y1, int(v[1]))
+                    x2, y2 = max(x2, int(v[0])), max(y2, int(v[1]))
+            gx1, gy1 = min(gx1, x1 - padding), min(gy1, y1 - padding)
+            gx2, gy2 = max(gx2, x2 + padding), max(gy2, y2 + padding)
 
-    gx1, gy1 = _clamp(gx1, 0, res), _clamp(gy1, 0, res)
-    gx2, gy2 = _clamp(gx2, 0, res), _clamp(gy2, 0, res)
-    # nothing visible in any frame (e.g. empty render) -> keep the full frame
-    if gx2 <= gx1 or gy2 <= gy1:
-        gx1, gy1, gx2, gy2 = 0, 0, res, res
+        gx1, gy1 = _clamp(gx1, 0, res), _clamp(gy1, 0, res)
+        gx2, gy2 = _clamp(gx2, 0, res), _clamp(gy2, 0, res)
+        # nothing visible in any frame (e.g. empty render) -> keep the full frame
+        if gx2 <= gx1 or gy2 <= gy1:
+            gx1, gy1, gx2, gy2 = 0, 0, res, res
     crop_h = gy2 - gy1
     for path in paths:
         Image.open(path).convert("RGBA").crop((gx1, gy1, gx2, gy2)).save(path)
@@ -84,16 +87,17 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
            progress=None) -> str:
     export_name = config.safe_output_name(output_name, mesh_name)
     base = config.FX_OUT if fx else config.OUT_DIR
-    glb = os.path.join(config.model_dir(mesh_name, base), f"{export_name}.glb")
-    # rebuild the glb if it's missing or the user picked textures / a clip / an overlay manually
-    if textures or clip or overlay or not os.path.exists(glb):
+    glb = os.path.join(config.model_dir(export_name, base), f"{export_name}.glb")
+    hide_objs = overrides.get("hide_objects")
+    # rebuild the glb if it's missing or the user picked textures / a clip / an overlay / hidden objects manually
+    if textures or clip or overlay or hide_objs or not os.path.exists(glb):
         if progress:
             progress("building glb…")
         convert(mesh_name, fx=fx, textures=textures, clip=clip, overlay=overlay,
-                output_name=export_name, progress=progress)
+                output_name=export_name, hide_objects=hide_objs, progress=progress)
 
-    work = config.work_dir(mesh_name, base)
-    sprites = config.sprites_dir(mesh_name, base)
+    work = config.work_dir(export_name, base)
+    sprites = config.sprites_dir(export_name, base)
     os.makedirs(work, exist_ok=True)
     os.makedirs(sprites, exist_ok=True)
     # clear previous frames so the sprite set always matches this run's frame count
@@ -122,9 +126,41 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
         raw = json.load(f)
     os.remove(raw_path)  # keep sprites/ tidy
 
-    if cfg["stable_crop"]:
+    align_box = None
+    crop_align = cfg.get("crop_align")
+    if crop_align:
+        if os.path.exists(str(crop_align)):
+            meta_path = str(crop_align)
+            master_cfg_path = meta_path.replace("_meta.json", "_render_cfg.json")
+        else:
+            meta_path = os.path.join(config.OUT_DIR, str(crop_align), "work", f"{crop_align}_meta.json")
+            master_cfg_path = os.path.join(config.OUT_DIR, str(crop_align), "work", f"{crop_align}_render_cfg.json")
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path, encoding="utf-8") as f:
+                    meta_data = json.load(f)
+                if "crop" in meta_data:
+                    align_box = meta_data["crop"]
+                # Scale align_box if the resolutions of master and current renders differ
+                if os.path.exists(master_cfg_path):
+                    with open(master_cfg_path, encoding="utf-8") as f:
+                        master_cfg = json.load(f)
+                    master_res = master_cfg.get("resolution")
+                    current_res = cfg.get("resolution") or config.RENDER_DEFAULTS["resolution"]
+                    if master_res and current_res and master_res != current_res:
+                        scale = current_res / master_res
+                        align_box = [
+                            int(round(align_box[0] * scale)),
+                            int(round(align_box[1] * scale)),
+                            int(round(align_box[2] * scale)),
+                            int(round(align_box[3] * scale))
+                        ]
+            except Exception:
+                pass
+
+    if cfg["stable_crop"] or align_box:
         coords, meta = stable_crop(sprites, raw, cfg["crop_padding"],
-                                   cfg["coord_origin"])
+                                   cfg["coord_origin"], align_box=align_box)
     else:
         coords = {k: [[int(round(v[0])), int(round(v[1]))] if v else "OFF"
                       for v in vals] for k, vals in raw["points"].items()}
@@ -161,6 +197,8 @@ _FLAG_TO_KEY = {
     "anim_frame_start": "anim_frame_start", "anim_frame_end": "anim_frame_end",
     "sun_color": "sun_color", "world_color": "world_color",
     "quality": "quality",
+    "hide_objects": "hide_objects",
+    "crop_align": "crop_align",
 }
 
 
@@ -198,6 +236,10 @@ def add_render_args(ap):
                    help="render on opaque background")
     g.add_argument("--origin", choices=["TOP_LEFT", "BOTTOM_LEFT"])
     g.add_argument("--quality", choices=["extra_low", "low", "medium", "high", "extra_high", "custom"])
+    g.add_argument("--hide", "--hide-objects", dest="hide_objects",
+                   help="comma-separated list of object names to hide/exclude")
+    g.add_argument("--crop-align", dest="crop_align",
+                   help="align stable crop coordinates with a reference metadata name or file path")
 
     g = ap.add_argument_group("camera / lighting")
     g.add_argument("--hdri", help="bundled world HDRI, e.g. studio.exr / city.exr")
@@ -266,6 +308,8 @@ def overrides_from_args(args) -> dict:
         ov["film_transparent"] = False
     if getattr(args, "no_rotation", False):
         ov["rotation"] = False
+    if getattr(args, "hide_objects", None) and isinstance(ov.get("hide_objects"), str):
+        ov["hide_objects"] = [h.strip() for h in ov["hide_objects"].split(",") if h.strip()]
     return ov
 
 

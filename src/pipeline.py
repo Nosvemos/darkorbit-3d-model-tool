@@ -92,13 +92,18 @@ def decode_textures(mesh_name: str, textures_dir: str, model_out: str,
 def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
                      model_out: str, work: str, textures: dict | None = None,
                      clip: str | None = None, overlay: str | None = None,
-                     output_name: str | None = None) -> str:
+                     output_name: str | None = None, hide_objects: list[str] | None = None) -> str:
     """Parse the AWD and write the intermediate scene JSON. Returns its path."""
     export_name = config.safe_output_name(output_name, mesh_name)
     scene = parse_file(os.path.join(meshes_dir, f"{mesh_name}.awd"))
     main_textures = decode_textures(mesh_name, textures_dir, model_out, overrides=textures)
 
     objects = []
+
+    def _should_hide(name: str) -> bool:
+        if not hide_objects:
+            return False
+        return any(h in name for h in hide_objects if h)
 
     def add_scene_objects(sc, texs):
         for inst in sc.instances:
@@ -132,6 +137,7 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
                 # points become empties and need no textures; body meshes share the set
                 "textures": {} if is_point else texs,
                 "clips": clips_out,
+                "hide": _should_hide(inst.name),
             })
 
     add_scene_objects(scene, main_textures)
@@ -183,17 +189,18 @@ def run_blender(scene_json: str, out_glb: str, gltf: bool, obj: bool,
 def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
             run: bool = True, fx: bool = False, textures: dict | None = None,
             clip: str | None = None, overlay: str | None = None,
-            output_name: str | None = None, progress=None) -> str:
+            output_name: str | None = None, hide_objects: list[str] | None = None,
+            progress=None) -> str:
     export_name = config.safe_output_name(output_name, mesh_name)
     meshes_dir = config.FX_DIR if fx else config.MESHES_DIR
     textures_dir = config.FX_DIR if fx else config.TEXTURES_DIR
     out_base = config.FX_OUT if fx else config.OUT_DIR
-    model = config.model_dir(mesh_name, out_base)
-    work = config.work_dir(mesh_name, out_base)
+    model = config.model_dir(export_name, out_base)
+    work = config.work_dir(export_name, out_base)
     os.makedirs(model, exist_ok=True)
     scene_json = build_scene_json(mesh_name, meshes_dir, textures_dir, model, work,
                                   textures=textures, clip=clip, overlay=overlay,
-                                  output_name=export_name)
+                                  output_name=export_name, hide_objects=hide_objects)
     out_glb = os.path.join(model, f"{export_name}.glb")
     if run:
         run_blender(scene_json, out_glb, gltf, obj, progress=progress)

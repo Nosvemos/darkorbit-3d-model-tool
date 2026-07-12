@@ -57,6 +57,9 @@ def build_mesh(obj):
     bpy.context.scene.collection.objects.link(ob)
     ob.matrix_world = AXIS_CONV @ make_matrix(obj["matrix"])
     _add_clips(ob, obj.get("clips") or [])
+    if obj.get("hide"):
+        ob.hide_viewport = True
+        ob.hide_render = True
     return ob
 
 
@@ -286,8 +289,13 @@ def main():
 
     # main body = largest mesh; points become empties parented to it
     main = max(meshes, key=lambda o: len(o.data.vertices), default=None)
+    hidden_lookup = {obj["name"]: obj.get("hide", False) for obj in scene["objects"]}
     for ob in points:
-        to_empty(ob, main)
+        name = ob.name
+        empty = to_empty(ob, main)
+        if hidden_lookup.get(name):
+            empty.hide_viewport = True
+            empty.hide_render = True
 
     # glb is the self-contained primary in model/; the separate gltf and obj
     # formats go in their own subdirs so their sidecar files (bin/mtl/textures)

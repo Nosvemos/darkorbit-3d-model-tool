@@ -47,12 +47,14 @@ def _reject_bulk_custom_name(args) -> None:
 
 def cmd_convert(args):
     _reject_bulk_custom_name(args)
+    hide = [h.strip() for h in args.hide_objects.split(",") if h.strip()] if getattr(args, "hide_objects", None) else None
     for name in _resolve_meshes(args):
         print(f"=== convert {name} ===")
         out = pipeline.convert(name, gltf=args.gltf, obj=args.obj,
                                run=not args.no_blender, fx=args.fx,
                                overlay=args.overlay or None,
-                               output_name=args.output_name or None)
+                               output_name=args.output_name or None,
+                               hide_objects=hide)
         print(f"  -> {out}")
 
 
@@ -148,6 +150,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--overlay", help="mesh name to overlay on top")
     c.add_argument("--output-name", "--export-name", dest="output_name",
                    help="basename for exported files (default: mesh name)")
+    c.add_argument("--hide", "--hide-objects", dest="hide_objects",
+                   help="comma-separated list of object names to hide/exclude")
     c.set_defaults(func=cmd_convert)
 
     r = sub.add_parser("render", help="turntable sprite render of a mesh")

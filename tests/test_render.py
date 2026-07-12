@@ -48,6 +48,15 @@ def test_stable_crop_padding(tmp_path):
     assert meta["crop"] == [5, 5, 23, 19]
 
 
+def test_stable_crop_with_align_box(tmp_path):
+    align_box = [6, 6, 22, 18]
+    coords, meta = stable_crop(str(tmp_path), _raw(tmp_path), 0, "TOP_LEFT", align_box=align_box)
+    assert meta["crop"] == align_box
+    assert meta["size"] == [16, 12]
+    assert coords["engine_0"] == [[4, 4], [4, 4]]
+    assert Image.open(tmp_path / "m_1.png").size == (16, 12)
+
+
 def test_render_args_overrides():
     import argparse
     from src.render import overrides_from_args, add_render_args
@@ -130,13 +139,82 @@ def test_render_uses_custom_output_name(tmp_path, monkeypatch):
     monkeypatch.setattr(render_mod, "stable_crop", lambda *args, **kwargs: ({}, {}))
     monkeypatch.setattr(config, "OUT_DIR", str(tmp_path))
 
-    sprites = config.sprites_dir("dummy", str(tmp_path))
+    sprites = config.sprites_dir("renamed", str(tmp_path))
     os.makedirs(sprites, exist_ok=True)
     with open(os.path.join(sprites, "renamed_render_raw.json"), "w") as f:
         json.dump({"resolution": 128, "frames": [], "points": {}}, f)
 
     render_mod.render("dummy", {}, output_name="renamed.png")
 
-    work_dir = config.work_dir("dummy", str(tmp_path))
+    work_dir = config.work_dir("renamed", str(tmp_path))
     assert os.path.exists(os.path.join(work_dir, "renamed_render_cfg.json"))
     assert os.path.exists(os.path.join(work_dir, "renamed_meta.json"))
+
+
+def test_render_resolves_crop_align(tmp_path, monkeypatch):
+    import json
+    import os
+    from src import render as render_mod
+    from src import config
+
+    monkeypatch.setattr(render_mod, "convert", lambda *args, **kwargs: "/mocked.glb")
+    monkeypatch.setattr(render_mod, "run_cmd", lambda *args, **kwargs: None)
+    
+    meta_dir = tmp_path / "ref_model" / "work"
+    os.makedirs(meta_dir, exist_ok=True)
+    with open(meta_dir / "ref_model_meta.json", "w") as f:
+        json.dump({"crop": [5, 5, 20, 20]}, f)
+        
+    monkeypatch.setattr(config, "OUT_DIR", str(tmp_path))
+
+    sprites = config.sprites_dir("dummy", str(tmp_path))
+    os.makedirs(sprites, exist_ok=True)
+    with open(os.path.join(sprites, "dummy_render_raw.json"), "w") as f:
+        json.dump({"resolution": 32, "frames": [], "points": {}}, f)
+
+    called_box = None
+    def mock_stable_crop(out_dir, raw, padding, origin, align_box=None):
+        nonlocal called_box
+        called_box = align_box
+        return {}, {"crop": align_box or [0, 0, 32, 32], "size": [32, 32]}
+    monkeypatch.setattr(render_mod, "stable_crop", mock_stable_crop)
+
+    render_mod.render("dummy", {"crop_align": "ref_model"})
+    assert called_box == [5, 5, 20, 20]
+
+
+def test_render_scales_crop_align_resolutions(tmp_path, monkeypatch):
+    import json
+    import os
+    from src import render as render_mod
+    from src import config
+
+    monkeypatch.setattr(render_mod, "convert", lambda *args, **kwargs: "/mocked.glb")
+    monkeypatch.setattr(render_mod, "run_cmd", lambda *args, **kwargs: None)
+    
+    meta_dir = tmp_path / "ref_model" / "work"
+    os.makedirs(meta_dir, exist_ok=True)
+    # reference has resolution 512, crop [100, 100, 400, 400]
+    with open(meta_dir / "ref_model_meta.json", "w") as f:
+        json.dump({"crop": [100, 100, 400, 400]}, f)
+    with open(meta_dir / "ref_model_render_cfg.json", "w") as f:
+        json.dump({"resolution": 512}, f)
+        
+    monkeypatch.setattr(config, "OUT_DIR", str(tmp_path))
+
+    sprites = config.sprites_dir("dummy", str(tmp_path))
+    os.makedirs(sprites, exist_ok=True)
+    with open(os.path.join(sprites, "dummy_render_raw.json"), "w") as f:
+        json.dump({"resolution": 256, "frames": [], "points": {}}, f)
+
+    called_box = None
+    def mock_stable_crop(out_dir, raw, padding, origin, align_box=None):
+        nonlocal called_box
+        called_box = align_box
+        return {}, {"crop": align_box or [0, 0, 256, 256], "size": [256, 256]}
+    monkeypatch.setattr(render_mod, "stable_crop", mock_stable_crop)
+
+    # current resolution is 256 (scale 0.5)
+    render_mod.render("dummy", {"crop_align": "ref_model", "resolution": 256})
+    # [100, 100, 400, 400] * 0.5 = [50, 50, 200, 200]
+    assert called_box == [50, 50, 200, 200]

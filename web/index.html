@@ -6,7 +6,7 @@
 <title>DarkOrbit 3D Tool</title>
 <style>
   :root { --bg:#15171c; --panel:#1d2026; --panel2:#23272f; --line:#2e333d;
-          --fg:#d6d9df; --mut:#8b909a; --acc:#ff7a18; --acc2:#39b0ff; }
+          --fg:#d6d9df; --mut:#8b909a; --acc:#ff7a18; --acc2:#39b0ff; --err:#ff4a4a; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--fg);
          font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
@@ -169,13 +169,14 @@ async function select(name){
   $("#info").innerHTML='<span class="mut">loading…</span>';
   try{
     const i = await jget(`/api/info?name=${encodeURIComponent(name)}&fx=${isFx()?1:0}`);
-    let rows = i.objects.map(o=>`<tr><td>${o.name}${o.point?' <span class="pt">●point</span>':''}</td><td>${o.verts}v</td><td>${o.tris}t</td></tr>`).join("");
+    let rows = i.objects.map(o=>`<tr><td><label class="chk" style="margin:0;font-size:13px;font-weight:normal;cursor:pointer;"><input type="checkbox" class="obj-visible" data-name="${o.name}" checked> ${o.name}${o.point?' <span class="pt">●point</span>':''}</label></td><td>${o.verts}v</td><td>${o.tris}t</td></tr>`).join("");
     const detected = Object.keys(i.textures||{});
     $("#info").innerHTML = `<table><tr><th>object</th><th>verts</th><th>tris</th></tr>${rows}</table>
       <div class="mut" style="margin-top:8px">auto textures: ${detected.join(", ")||"none"} · clips: ${i.clips.join(", ")||"none"}</div>`;
     // pre-fill the manual texture inputs with whatever was auto-detected
     Object.entries(i.textures||{}).forEach(([c,n])=>{
-      const el = document.querySelector(`#actions .tex[data-ch="${c}"]`); if(el) el.value = n;
+      const el = document.querySelector(`#actions .tex[data-ch="${c}"]`);
+      if(el) { el.value = n; validateTextureInput(el); }
     });
     // populate the clip selector (vertex animations); "all" plays every clip
     const cl = $("#o_clip");
@@ -188,7 +189,43 @@ const HDRIS = ["studio","city","courtyard","forest","interior","night","sunrise"
 const num = (k,v,step="") => `<label>${k.label}<input type="number" class="opt" data-key="${k.key}" value="${v}"${step?` step="${step}"`:""}></label>`;
 const color = (k,v) => `<label>${k.label}<input type="color" class="opt" data-key="${k.key}" value="${v}"></label>`;
 
+function saveSettings(){
+  const saved = {};
+  document.querySelectorAll("#actions .opt").forEach(el=>{
+    saved[el.dataset.key] = el.value;
+  });
+  document.querySelectorAll("#actions .optbool").forEach(el=>{
+    saved[el.dataset.key] = el.checked;
+  });
+  const gltfEl = $("#o_gltf");
+  const objEl = $("#o_obj");
+  if(gltfEl) saved["_gltf"] = gltfEl.checked;
+  if(objEl) saved["_obj"] = objEl.checked;
+  return saved;
+}
+
+function restoreSettings(saved){
+  if(!saved) return;
+  document.querySelectorAll("#actions .opt").forEach(el=>{
+    const key = el.dataset.key;
+    if (key in saved && key !== "output_name" && key !== "overlay" && key !== "crop_align") {
+      el.value = saved[key];
+    }
+  });
+  document.querySelectorAll("#actions .optbool").forEach(el=>{
+    const key = el.dataset.key;
+    if (key in saved) {
+      el.checked = saved[key];
+    }
+  });
+  const gltfEl = $("#o_gltf");
+  const objEl = $("#o_obj");
+  if(gltfEl && "_gltf" in saved) gltfEl.checked = saved["_gltf"];
+  if(objEl && "_obj" in saved) objEl.checked = saved["_obj"];
+}
+
 function renderActions(){
+  const saved = saveSettings();
   const a = $("#actions");
   if(isEffect()){
     a.innerHTML = `<div class="row">
@@ -198,6 +235,7 @@ function renderActions(){
       ${num({label:"margin",key:"margin"},1.2,"0.05")}
       <button class="act" id="b_fx">Render Effect</button></div>`;
     $("#b_fx").onclick = runFx;
+    restoreSettings(saved);
     return;
   }
   a.innerHTML = `<div class="row">
@@ -217,6 +255,7 @@ function renderActions(){
       <label>clip<select id="o_clip"><option value="">all</option></select></label>
       <label>export name<input type="text" class="opt" id="o_output_name" data-key="output_name" placeholder="(same)" style="width:110px"></label>
       <label>overlay<input type="text" class="opt" id="o_overlay" data-key="overlay" placeholder="e.g. sibelonit" style="width:90px"></label>
+      <label>crop align<input type="text" class="opt" id="o_crop_align" data-key="crop_align" placeholder="e.g. aegis_full" style="width:110px"></label>
       <button class="act" id="b_render">Render Sprites</button>
     </div>
     <div style="margin-top:12px">
@@ -311,6 +350,8 @@ function renderActions(){
 
   $("#b_render").onclick = runRender;
   $("#b_convert").onclick = runConvert;
+
+  restoreSettings(saved);
 }
 
 // gather every .opt / .optbool input in the actions panel into an override dict
@@ -334,6 +375,14 @@ function collectTextures(){
   return t;
 }
 
+function collectHiddenObjects(){
+  const hidden = [];
+  document.querySelectorAll(".obj-visible").forEach(el=>{
+    if(!el.checked) hidden.push(el.dataset.name);
+  });
+  return hidden;
+}
+
 function busy(b){ document.querySelectorAll("#actions button").forEach(x=>x.disabled=b); }
 function sameSelection(s,k){ return sel===s && kind===k; }
 
@@ -342,7 +391,17 @@ async function runConvert(){
   const status = t => { if(sameSelection(s,k)) setStatus(t); };
   busy(true); setStatus("converting… (Blender)");
   try{
-    const r = await runJob("/api/convert",{name:s, fx:k==="fx", gltf:$("#o_gltf").checked, obj:$("#o_obj").checked, textures:collectTextures(), clip:($("#o_clip")||{}).value||"", overlay:($("#o_overlay")||{}).value||"", output_name:($("#o_output_name")||{}).value||""}, status);
+    const r = await runJob("/api/convert",{
+      name: s,
+      fx: k==="fx",
+      gltf: $("#o_gltf").checked,
+      obj: $("#o_obj").checked,
+      textures: collectTextures(),
+      clip: ($("#o_clip")||{}).value||"",
+      overlay: ($("#o_overlay")||{}).value||"",
+      output_name: ($("#o_output_name")||{}).value||"",
+      hide_objects: collectHiddenObjects()
+    }, status);
     if(sameSelection(s,k)){ setStatus("converted ✓"); showLinks({glb:r.glb}); }
   }catch(e){ if(sameSelection(s,k)) setStatus("error: "+e.message); }
   finally{ if(sameSelection(s,k)) busy(false); }
@@ -352,7 +411,13 @@ async function runRender(){
   const status = t => { if(sameSelection(s,k)) setStatus(t); };
   busy(true); setStatus("rendering sprites… (Blender)");
   try{
-    const r = await runJob("/api/render", Object.assign({name:s, fx:k==="fx", textures:collectTextures(), clip:($("#o_clip")||{}).value||""}, collectOpts()), status);
+    const r = await runJob("/api/render", Object.assign({
+      name: s,
+      fx: k==="fx",
+      textures: collectTextures(),
+      clip: ($("#o_clip")||{}).value||"",
+      hide_objects: collectHiddenObjects()
+    }, collectOpts()), status);
     const fr = (r && r.frames) || [];
     if(sameSelection(s,k)){
       setStatus(`rendered ${fr.length} frames ✓`);
@@ -375,16 +440,19 @@ async function runFx(){
 
 function showLinks(r){
   const l = $("#links"); l.innerHTML="";
-  if(r.glb) l.innerHTML += `<a href="${r.glb}" download>⬇ glb</a>`;
-  if(r.coords) l.innerHTML += `<a href="${r.coords}" target="_blank">Coords.json</a>`;
+  const t = Date.now();
+  if(r.glb) l.innerHTML += `<a href="${r.glb}?t=${t}" download>⬇ glb</a>`;
+  if(r.coords) l.innerHTML += `<a href="${r.coords}?t=${t}" target="_blank">Coords.json</a>`;
 }
 function stopAnim(){ if(timer){ clearInterval(timer); timer=null; } }
 function playFrames(fr){
-  frames = fr; fi = 0;
-  $("#scrub").max = Math.max(0, fr.length-1); $("#scrub").value = 0;
-  $("#fcount").textContent = fr.length+" frames";
-  if(!fr.length){ $("#viewer").innerHTML='<span class="mut">no frames</span>'; return; }
-  $("#viewer").innerHTML = `<img id="frame" src="${fr[0]}">`;
+  const t = Date.now();
+  frames = fr.map(url => `${url}?t=${t}`);
+  fi = 0;
+  $("#scrub").max = Math.max(0, frames.length-1); $("#scrub").value = 0;
+  $("#fcount").textContent = frames.length+" frames";
+  if(!frames.length){ $("#viewer").innerHTML='<span class="mut">no frames</span>'; return; }
+  $("#viewer").innerHTML = `<img id="frame" src="${frames[0]}">`;
   startAnim();
 }
 function startAnim(){
@@ -410,13 +478,30 @@ function fillTexList(q){
   const m = (q ? TEX_NAMES.filter(n=>n.toLowerCase().includes(q)) : TEX_NAMES).slice(0,40);
   $("#atflist").innerHTML = m.map(n=>`<option value="${n}">`).join("");
 }
+function validateTextureInput(el){
+  const val = el.value.trim();
+  if(!val){ el.style.borderColor = ""; return; }
+  const clean = val.endsWith(".atf") ? val.slice(0, -4) : val;
+  if(TEX_NAMES.includes(clean)){
+    el.style.borderColor = "";
+  } else {
+    el.style.borderColor = "var(--err)";
+  }
+}
 async function loadTextures(){
-  try{ TEX_NAMES = (await jget("/api/textures")).items; fillTexList(""); }
+  try{
+    TEX_NAMES = (await jget("/api/textures")).items;
+    fillTexList("");
+    document.querySelectorAll(".tex").forEach(validateTextureInput);
+  }
   catch(e){}
 }
 // keep the texture datalist short (filter as you type) so the popup stays small
 document.addEventListener("input", e=>{
-  if(e.target.classList && e.target.classList.contains("tex")) fillTexList(e.target.value);
+  if(e.target.classList && e.target.classList.contains("tex")) {
+    fillTexList(e.target.value);
+    validateTextureInput(e.target);
+  }
 });
 loadList(); loadTextures();
 </script>

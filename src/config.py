@@ -160,6 +160,8 @@ RENDER_DEFAULTS = {
     "coord_origin": "TOP_LEFT",   # or BOTTOM_LEFT, for the points JSON
     "stable_crop": True,          # crop all frames to one global alpha bbox
     "crop_padding": 4,            # px around the crop
+    "hide_objects": [],           # list of object names to hide/exclude
+    "crop_align": None,           # align crop bounds with a reference metadata name/file
 }
 
 # Texture channels resolved by filename convention: <mesh>_<channel>_512.atf
