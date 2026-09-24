@@ -45,6 +45,24 @@ def build_mesh(obj):
     mesh.from_pydata(verts, [], faces)
     mesh.validate()
 
+    # AWD2 can carry authored vertex normals. Keep them instead of replacing
+    # them with Blender's newly averaged smooth normals; DarkOrbit's faceting
+    # and highlight placement depend on this stream. Some ships (including
+    # Goliath) omit it, in which case smooth normals are generated as before.
+    flat_normals = obj.get("normals") or []
+    if len(flat_normals) == len(verts) * 3:
+        vertex_normals = []
+        valid = True
+        for i in range(0, len(flat_normals), 3):
+            x, y, z = map(float, flat_normals[i:i + 3])
+            length = math.sqrt(x * x + y * y + z * z)
+            if not math.isfinite(length) or length <= 1e-12:
+                valid = False
+                break
+            vertex_normals.append((x / length, y / length, z / length))
+        if valid:
+            mesh.normals_split_custom_set_from_vertices(vertex_normals)
+
     uvs = obj.get("uvs") or []
     if uvs:
         uv_layer = mesh.uv_layers.new(name="UVMap")
@@ -209,10 +227,21 @@ def build_material(name, textures):
     if diffuse:
         nt.links.new(base_color, bsdf.inputs["Base Color"])
 
-    specular = tex(textures.get("specular"), non_color=True, y=0)
+    # The pipeline pre-packs Away3D R strength into alpha and translates G
+    # gloss into glTF's G roughness channel. Linking those channels directly
+    # survives Blender's GLB export/import round trip used by the renderer.
+    specular = tex(textures.get("specular_pbr"), non_color=True, y=0)
     specular_input = input_any(bsdf, ["Specular IOR Level", "Specular"])
     if specular and specular_input is not None:
-        nt.links.new(specular.outputs["Color"], specular_input)
+        specular_sep = separate_rgb(specular.outputs["Color"], y=0)
+        specular_strength = specular.outputs.get("Alpha")
+        specular_roughness = sep_out(specular_sep, ["Green", "G"])
+        if specular_strength:
+            nt.links.new(specular_strength, specular_input)
+        if specular_roughness:
+            roughness_input = input_any(bsdf, ["Roughness"])
+            if roughness_input is not None:
+                nt.links.new(specular_roughness, roughness_input)
 
     glow = tex(textures.get("glow"), y=-300)
     if glow:

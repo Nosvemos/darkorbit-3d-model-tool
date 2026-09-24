@@ -65,6 +65,7 @@ BLENDER_EXE = os.environ.get(
 
 BUILD_SCENE_SCRIPT = os.path.join(ROOT, "src", "blender", "build_scene.py")
 RENDER_SCRIPT = os.path.join(ROOT, "src", "blender", "render_sprites.py")
+MODEL_BUILD_VERSION = 3  # bump when the generated GLB scene/material contract changes
 
 # Named visual profiles applied before per-run overrides. The DarkOrbit map
 # lighting values follow the default 3D map entries in the reference
@@ -79,6 +80,7 @@ RENDER_PROFILES = {
         "world_color": "#ff855c",
         "sun_energy": 0.8,
         "sun_color": "#a3ffff",
+        "specular_strength": 1.1,
         "sun_tilt": 100.0,
         "sun_pan": 35.0,
         "emission_strength": 1.0,
@@ -99,6 +101,7 @@ RENDER_PROFILES = {
         "world_color": "#ffffff",
         "sun_energy": 1.5,
         "sun_color": "#ffffff",
+        "specular_strength": 1.0,
         "sun_angle": [50.0, 0.0, 40.0],
         "emission_strength": 0.6,
         "cam_ortho": True,
@@ -143,6 +146,7 @@ RENDER_DEFAULTS = {
 
     "sun_energy": 0.8,             # map diffuse=0.8 (Blender energy approximation)
     "sun_color": "#a3ffff",       # map color=0xA3FFFF
+    "specular_strength": 1.1,     # map specular=1.1 (Away3D highlight multiplier)
     "sun_angle": [50.0, 0.0, 40.0],   # degrees, XYZ euler
     "sun_tilt": 100.0,         # DarkOrbit Settings3D.sunLight.directionTilt
     "sun_pan": 35.0,           # DarkOrbit Settings3D.sunLight.directionPan

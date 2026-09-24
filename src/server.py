@@ -24,6 +24,9 @@ from src.awd import parse_file
 
 WEB_DIR = os.path.join(config.ROOT, "web")
 _NUM = re.compile(r"(\d+)")
+_PROFILE_OVERRIDE_KEYS = {
+    key for profile in config.RENDER_PROFILES.values() for key in profile
+}
 
 
 def _stems(directory, pattern):
@@ -107,6 +110,16 @@ def api_render(body, progress=None):
     export_name = config.safe_output_name(body.get("output_name"), name)
     ov = {k: v for k, v in body.items()
           if k in config.RENDER_DEFAULTS and v not in (None, "")}
+    # Profile-controlled browser fields are defaults, not user overrides.
+    # Only fields the user edited after selecting a preset are sent in this
+    # explicit map; this also keeps older open UI tabs from masking the preset.
+    for key in _PROFILE_OVERRIDE_KEYS:
+        ov.pop(key, None)
+    profile_overrides = body.get("profile_overrides")
+    if isinstance(profile_overrides, dict):
+        for key, value in profile_overrides.items():
+            if key in _PROFILE_OVERRIDE_KEYS and value is not None:
+                ov[key] = value
     sprites = render_mod.render(name, ov, fx=fx, textures=body.get("textures") or None,
                                 clip=body.get("clip") or None,
                                 overlay=body.get("overlay") or None,

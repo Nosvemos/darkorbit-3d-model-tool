@@ -88,9 +88,18 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
     export_name = config.safe_output_name(output_name, mesh_name)
     base = config.FX_OUT if fx else config.OUT_DIR
     glb = os.path.join(config.model_dir(export_name, base), f"{export_name}.glb")
+    build_stamp = os.path.join(config.work_dir(export_name, base),
+                               f"{export_name}_build.json")
+    try:
+        with open(build_stamp, encoding="utf-8") as f:
+            built_version = json.load(f).get("version")
+    except (OSError, ValueError, TypeError):
+        built_version = None
     hide_objs = overrides.get("hide_objects")
-    # rebuild the glb if it's missing or the user picked textures / a clip / an overlay / hidden objects manually
-    if textures or clip or overlay or hide_objs or not os.path.exists(glb):
+    # Rebuild missing/stale GLBs as well as explicit per-run source overrides.
+    # The version stamp ensures renderer/material fixes reach existing outputs.
+    if (textures or clip or overlay or hide_objs or not os.path.exists(glb) or
+            built_version != config.MODEL_BUILD_VERSION):
         if progress:
             progress("building glb…")
         convert(mesh_name, fx=fx, textures=textures, clip=clip, overlay=overlay,
@@ -188,6 +197,7 @@ _FLAG_TO_KEY = {
     "samples": "samples", "engine": "engine", "view_transform": "view_transform",
     "origin": "coord_origin", "hdri": "world_hdri",
     "world_strength": "world_strength", "sun_energy": "sun_energy",
+    "specular_strength": "specular_strength",
     "emission": "emission_strength", "elevation": "cam_elevation",
     "azimuth": "cam_azimuth", "cam_tilt": "cam_tilt", "cam_pan": "cam_pan",
     "cam_fov": "cam_fov", "cam_distance": "cam_distance",
@@ -249,6 +259,8 @@ def add_render_args(ap):
                    help="disable Blender world HDRI lighting")
     g.add_argument("--world-strength", type=float, dest="world_strength")
     g.add_argument("--sun-energy", type=float, dest="sun_energy")
+    g.add_argument("--specular-strength", type=float, dest="specular_strength",
+                   help="DarkOrbit LightSettings specular multiplier")
     g.add_argument("--emission", type=float, help="glow emission strength")
     g.add_argument("--camera-model", choices=["darkorbit", "orbit"],
                    dest="camera_model")

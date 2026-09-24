@@ -218,12 +218,18 @@ const color = (k,v) => `<label>${k.label}<input type="color" class="opt" data-ke
 
 function saveSettings(){
   const saved = {};
+  const profileOverrides = {};
   document.querySelectorAll("#actions .opt").forEach(el=>{
     saved[el.dataset.key] = el.value;
+    if(el.dataset.profileOverride === "1")
+      profileOverrides[el.dataset.key] = el.type === "number" ? +el.value : el.value;
   });
   document.querySelectorAll("#actions .optbool").forEach(el=>{
     saved[el.dataset.key] = el.checked;
+    if(el.dataset.profileOverride === "1")
+      profileOverrides[el.dataset.key] = el.dataset.invert ? el.checked : !el.checked;
   });
+  saved["_profile_overrides"] = profileOverrides;
   const gltfEl = $("#o_gltf");
   const objEl = $("#o_obj");
   if(gltfEl) saved["_gltf"] = gltfEl.checked;
@@ -231,18 +237,27 @@ function saveSettings(){
   return saved;
 }
 
-function restoreSettings(saved){
+function restoreSettings(saved, profileKeys = new Set()){
   if(!saved) return;
+  const profileOverrides = saved["_profile_overrides"] || {};
   document.querySelectorAll("#actions .opt").forEach(el=>{
     const key = el.dataset.key;
-    if (key in saved && key !== "output_name" && key !== "overlay" && key !== "crop_align") {
-      el.value = saved[key];
+    if (key in saved && key !== "output_name" && key !== "overlay" && key !== "crop_align" &&
+        (!profileKeys.has(key) || key in profileOverrides)) {
+      el.value = profileKeys.has(key) ? profileOverrides[key] : saved[key];
+      if(profileKeys.has(key)) el.dataset.profileOverride = "1";
     }
   });
   document.querySelectorAll("#actions .optbool").forEach(el=>{
     const key = el.dataset.key;
-    if (key in saved) {
-      el.checked = saved[key];
+    if (key in saved && (!profileKeys.has(key) || key in profileOverrides)) {
+      if(profileKeys.has(key)) {
+        const value = profileOverrides[key];
+        el.checked = el.dataset.invert ? !!value : !value;
+      } else {
+        el.checked = !!saved[key];
+      }
+      if(profileKeys.has(key)) el.dataset.profileOverride = "1";
     }
   });
   const gltfEl = $("#o_gltf");
@@ -310,6 +325,7 @@ function renderActions(){
         ${num({label:"anim end",key:"anim_frame_end"},"")}
         ${num({label:"world str",key:"world_strength"},0.5,"0.1")}
         ${num({label:"sun energy",key:"sun_energy"},0.8,"0.1")}
+        ${num({label:"specular",key:"specular_strength"},1.1,"0.1")}
         ${num({label:"sun tilt°",key:"sun_tilt"},100)}
         ${num({label:"sun pan°",key:"sun_pan"},35)}
         ${color({label:"world color",key:"world_color"},"#ff855c")}
@@ -353,33 +369,52 @@ function renderActions(){
   const profiles = {
     darkorbit: {
       camera_model:"darkorbit", light_model:"darkorbit", use_hdri:false,
-      world_strength:0.5, world_color:"#ff855c", sun_energy:0.8, sun_color:"#a3ffff",
+      world_strength:0.5, world_color:"#ff855c", sun_energy:0.8, sun_color:"#a3ffff", specular_strength:1.1,
       sun_tilt:100, sun_pan:35, emission_strength:1, cam_ortho:false,
       cam_fov:30, cam_tilt:135, cam_pan:25, cam_distance:"",
       light_quality:"medium", hero_light:false
     },
     studio: {
-      camera_model:"orbit", light_model:"blender", use_hdri:true,
+      camera_model:"orbit", light_model:"blender", use_hdri:true, world_hdri:"studio.exr",
       world_strength:0.8, world_color:"#ffffff", sun_energy:1.5, sun_color:"#ffffff",
+      specular_strength:1,
       sun_tilt:100, sun_pan:35, emission_strength:0.6, cam_ortho:true,
       cam_fov:35, cam_tilt:135, cam_pan:25, cam_distance:"",
       light_quality:"medium", hero_light:false
     }
   };
-  $("#o_profile").onchange = (e) => {
-    const p = profiles[e.target.value] || profiles.darkorbit;
-    Object.entries(p).forEach(([key,val])=>{
+  const profileKeys = new Set(Object.values(profiles).flatMap(p=>Object.keys(p)));
+  const applyProfile = (name, overrides = {}) => {
+    const values = profiles[name] || profiles.darkorbit;
+    Object.entries(values).forEach(([key,val])=>{
       const el = document.querySelector(`#actions .opt[data-key="${key}"]`);
-      if(el) el.value = val;
+      if(el) { el.value = val; delete el.dataset.profileOverride; }
       const b = document.querySelector(`#actions .optbool[data-key="${key}"]`);
-      if(b) b.checked = !!val;
+      if(b) { b.checked = b.dataset.invert ? !!val : !val; delete b.dataset.profileOverride; }
+    });
+    Object.entries(overrides).forEach(([key,val])=>{
+      if(!profileKeys.has(key)) return;
+      const el = document.querySelector(`#actions .opt[data-key="${key}"]`);
+      if(el) { el.value = val; el.dataset.profileOverride = "1"; }
+      const b = document.querySelector(`#actions .optbool[data-key="${key}"]`);
+      if(b) { b.checked = b.dataset.invert ? !!val : !val; b.dataset.profileOverride = "1"; }
     });
   };
+  $("#o_profile").onchange = (e) => {
+    applyProfile(e.target.value);
+  };
+  document.querySelectorAll("#actions .opt[data-key], #actions .optbool[data-key]").forEach(el=>{
+    if(!profileKeys.has(el.dataset.key)) return;
+    const markOverride = () => { el.dataset.profileOverride = "1"; };
+    el.addEventListener("input", markOverride);
+    el.addEventListener("change", markOverride);
+  });
 
   $("#b_render").onclick = runRender;
   $("#b_convert").onclick = runConvert;
 
-  restoreSettings(saved);
+  restoreSettings(saved, profileKeys);
+  applyProfile($("#o_profile").value, saved?._profile_overrides || {});
 }
 
 // gather every .opt / .optbool input in the actions panel into an override dict
@@ -390,6 +425,16 @@ function collectOpts(){
     o[el.dataset.key] = el.type==="number" ? +el.value : el.value;
   });
   document.querySelectorAll("#actions .optbool").forEach(el=>{
+    o[el.dataset.key] = el.dataset.invert ? el.checked : !el.checked;
+  });
+  return o;
+}
+function collectProfileOverrides(){
+  const o = {};
+  document.querySelectorAll('#actions .opt[data-profile-override="1"]').forEach(el=>{
+    o[el.dataset.key] = el.type === "number" ? +el.value : el.value;
+  });
+  document.querySelectorAll('#actions .optbool[data-profile-override="1"]').forEach(el=>{
     o[el.dataset.key] = el.dataset.invert ? el.checked : !el.checked;
   });
   return o;
@@ -445,7 +490,7 @@ async function runRender(){
       textures: collectTextures(),
       clip: ($("#o_clip")||{}).value||"",
       hide_objects: collectHiddenObjects()
-    }, collectOpts()), status);
+    }, Object.assign(collectOpts(), {profile_overrides: collectProfileOverrides()})), status);
     const fr = (r && r.frames) || [];
     if(sameSelection(s,k)){
       setStatus(`rendered ${fr.length} frames ✓`);

@@ -85,9 +85,15 @@ def darkorbit_light_direction(tilt, pan) -> Vector:
 
 
 def darkorbit_camera_direction(tilt, pan) -> Vector:
-    """Observer3D camera offset direction from lookAt to camera."""
+    """Observer3D camera offset direction from lookAt to camera.
+
+    DarkOrbit pan describes the viewing direction. This function positions the
+    camera on the opposite side of its target, so its position azimuth is
+    rotated by 180 degrees. Without that conversion, ship renders look from the
+    engine side (the Goliath's front markers are on AWD +Z).
+    """
     t = math.radians(tilt)
-    p = math.radians(pan)
+    p = math.radians(pan + 180.0)
     away = Vector((math.sin(t) * math.sin(p),
                    -math.cos(t),
                    -math.sin(t) * math.cos(p)))
@@ -181,6 +187,164 @@ def setup_hero_light(cfg, center, radius):
     light.location = center
     bpy.context.scene.collection.objects.link(light)
     return light
+
+
+def apply_away3d_lighting(cfg):
+    """Restore the client's separate ambient and specular-light terms in EEVEE.
+
+    An EEVEE World surface provides a background, not ambient irradiance. The
+    map XML supplies ambientColor/ambient separately from the sun, so add that
+    diffuse-colored fill as emission while retaining direct sun shading. The
+    light's specular multiplier is likewise separate from the material map.
+    """
+    if cfg.get("light_model") != "darkorbit":
+        return
+
+    specular_strength = float(cfg.get("specular_strength", 1.0))
+    for mat in bpy.data.materials:
+        if not mat.node_tree or mat.get("darkorbit_specular_lobe"):
+            continue
+        nt = mat.node_tree
+        packed_map = next((node for node in nt.nodes
+                           if node.type == "TEX_IMAGE" and node.image and
+                           "_specular_gltf" in node.image.name.lower()), None)
+        bsdf = next((node for node in nt.nodes
+                     if node.type == "BSDF_PRINCIPLED"), None)
+        output = next((node for node in nt.nodes
+                       if node.type == "OUTPUT_MATERIAL" and node.is_active_output), None)
+        if packed_map is None or bsdf is None or output is None:
+            continue
+
+        # Away3D's BasicSpecularMethod uses map R as a direct Phong highlight
+        # weight. Principled clamps the equivalent dielectric Fresnel response
+        # to about 4%, making DarkOrbit's authored specular maps look almost
+        # matte. Use a separate glossy lobe so the channel retains its strength.
+        glossy = nt.nodes.new("ShaderNodeBsdfGlossy")
+        glossy.name = "Away3D specular lobe"
+        glossy.label = "Away3D BasicSpecularMethod"
+        glossy.location = (260, -400)
+        separate = nt.nodes.new("ShaderNodeSeparateColor")
+        separate.name = "Away3D gloss channel"
+        separate.location = (-280, -420)
+        nt.links.new(packed_map.outputs["Color"], separate.inputs[0])
+        gloss = separate.outputs.get("Green")
+        if gloss is None:
+            gloss = separate.outputs.get("G")
+        if gloss is None:
+            continue
+        nt.links.new(gloss, glossy.inputs["Roughness"])
+
+        strength = nt.nodes.new("ShaderNodeMath")
+        strength.operation = "MULTIPLY"
+        strength.name = "Away3D light specular strength"
+        strength.label = f"Light specular × {specular_strength:g}"
+        # Blender's normalized glossy BSDF carries more energy than Away3D's
+        # empirical Phong term for the same map value. Calibrate the lobe so a
+        # full-strength map stays a highlight instead of washing out the hull.
+        strength.inputs[1].default_value = specular_strength * 0.1
+        nt.links.new(packed_map.outputs["Alpha"], strength.inputs[0])
+
+        try:
+            color = nt.nodes.new("ShaderNodeCombineColor")
+            color_inputs = ("Red", "Green", "Blue")
+        except RuntimeError:
+            color = nt.nodes.new("ShaderNodeCombineRGB")
+            color_inputs = ("R", "G", "B")
+        color.location = (0, -420)
+        for input_name in color_inputs:
+            nt.links.new(strength.outputs[0], color.inputs[input_name])
+        nt.links.new(color.outputs[0], glossy.inputs["Color"])
+
+        spec_input = next((bsdf.inputs[name] for name in
+                           ("Specular IOR Level", "Specular") if name in bsdf.inputs), None)
+        if spec_input is not None:
+            for link in list(spec_input.links):
+                nt.links.remove(link)
+            spec_input.default_value = 0.0
+
+        surface = output.inputs["Surface"]
+        old_surface = surface.links[0].from_socket if surface.is_linked else bsdf.outputs[0]
+        add_specular = nt.nodes.new("ShaderNodeAddShader")
+        add_specular.name = "Away3D diffuse plus specular"
+        add_specular.location = (500, 120)
+        nt.links.new(old_surface, add_specular.inputs[0])
+        nt.links.new(glossy.outputs[0], add_specular.inputs[1])
+        for link in list(surface.links):
+            nt.links.remove(link)
+        nt.links.new(add_specular.outputs[0], surface)
+        mat["darkorbit_specular_lobe"] = True
+
+    ambient_strength = max(0.0, float(cfg.get("world_strength", 0.0)))
+    if ambient_strength > 0:
+        ambient_color = hex_to_rgb(cfg.get("world_color", "#ffffff"))
+        for mat in bpy.data.materials:
+            if not mat.node_tree:
+                continue
+            nt = mat.node_tree
+            if any(node.get("darkorbit_ambient_fill") for node in nt.nodes):
+                continue
+            bsdf = next((node for node in nt.nodes
+                         if node.type == "BSDF_PRINCIPLED"), None)
+            output = next((node for node in nt.nodes
+                           if node.type == "OUTPUT_MATERIAL" and node.is_active_output), None)
+            if bsdf is None or output is None or "Base Color" not in bsdf.inputs:
+                continue
+            surface = output.inputs["Surface"]
+            surface_links = list(surface.links)
+            if not surface_links:
+                continue
+
+            base = bsdf.inputs["Base Color"]
+            albedo = nt.nodes.new("ShaderNodeMixRGB")
+            albedo.name = "DarkOrbit ambient albedo"
+            albedo.label = "Away3D diffuse × ambientColor"
+            albedo.blend_type = "MULTIPLY"
+            albedo.inputs["Fac"].default_value = 1.0
+            albedo.inputs["Color2"].default_value = ambient_color + [1.0]
+            if base.is_linked:
+                nt.links.new(base.links[0].from_socket, albedo.inputs["Color1"])
+            else:
+                albedo.inputs["Color1"].default_value = base.default_value
+
+            fill = nt.nodes.new("ShaderNodeEmission")
+            fill.name = "DarkOrbit ambient fill"
+            fill.label = "Away3D ambient"
+            fill.inputs["Strength"].default_value = ambient_strength
+            nt.links.new(albedo.outputs["Color"], fill.inputs["Color"])
+
+            add = nt.nodes.new("ShaderNodeAddShader")
+            add.name = "DarkOrbit ambient lighting"
+            add.label = "Direct + ambient"
+            nt.links.new(surface_links[0].from_socket, add.inputs[0])
+            nt.links.new(fill.outputs["Emission"], add.inputs[1])
+            nt.links.remove(surface_links[0])
+            nt.links.new(add.outputs[0], surface)
+            fill["darkorbit_ambient_fill"] = True
+
+    for mat in bpy.data.materials:
+        if not mat.node_tree:
+            continue
+        nt = mat.node_tree
+        if mat.get("darkorbit_specular_lobe"):
+            continue
+        for bsdf in (node for node in nt.nodes if node.type == "BSDF_PRINCIPLED"):
+            socket = next((bsdf.inputs[name] for name in
+                           ("Specular IOR Level", "Specular") if name in bsdf.inputs), None)
+            if socket is None:
+                continue
+            if socket.is_linked:
+                link = socket.links[0]
+                source = link.from_socket
+                nt.links.remove(link)
+                scale = nt.nodes.new("ShaderNodeMath")
+                scale.operation = "MULTIPLY"
+                scale.name = "DarkOrbit light specular strength"
+                scale.label = f"Away3D light specular × {specular_strength:g}"
+                nt.links.new(source, scale.inputs[0])
+                scale.inputs[1].default_value = specular_strength
+                nt.links.new(scale.outputs[0], socket)
+            else:
+                socket.default_value = float(socket.default_value) * specular_strength
 
 
 def setup_camera(cfg, center, radius):
@@ -304,6 +468,7 @@ def main():
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=glb)
+    apply_away3d_lighting(cfg)
 
     center, radius, _, _ = scene_bounds()
     root = parent_under_root(center)

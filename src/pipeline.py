@@ -17,6 +17,8 @@ import os
 import subprocess
 import sys
 
+from PIL import Image
+
 if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -42,6 +44,26 @@ def _resolve_atf(spec: str, dirs: list[str]) -> str | None:
         if os.path.exists(p):
             return p
     return None
+
+
+def _pack_away3d_specular(specular_png: str) -> str:
+    """Pack Away3D R strength and G gloss into glTF-compatible channels.
+
+    glTF stores roughness in the metallic-roughness texture's G channel and
+    KHR_materials_specular strength in the specular texture's alpha channel.
+    The source specular map instead stores strength in R and gloss in G.
+    """
+    with Image.open(specular_png) as source:
+        rgba = source.convert("RGBA")
+        red, green, _blue, _alpha = rgba.split()
+        roughness = green.point(
+            lambda gloss: round(255.0 * (2.0 / (50.0 * gloss / 255.0 + 2.0)) ** 0.5)
+        )
+        zero = Image.new("L", rgba.size, 0)
+        packed = Image.merge("RGBA", (zero, roughness, zero, red))
+        output = os.path.splitext(specular_png)[0] + "_gltf.png"
+        packed.save(output)
+    return output
 
 
 def detect_textures(mesh_name: str, textures_dir: str,
@@ -81,6 +103,8 @@ def decode_textures(mesh_name: str, textures_dir: str, model_out: str,
                 found[channel] = png
             except Exception:
                 pass
+    if found.get("specular"):
+        found["specular_pbr"] = _pack_away3d_specular(found["specular"])
     # fx meshes have no channel convention; fall back to a single <mesh>.atf
     if not found and not overrides:
         single = os.path.join(textures_dir, f"{mesh_name}.atf")
@@ -116,12 +140,17 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
             if not geo or not geo.subs:
                 continue
             # merge sub-meshes into one vertex/index/uv set
-            positions, indices, uvs = [], [], []
+            positions, indices, uvs, normals = [], [], [], []
+            has_complete_normals = bool(geo.subs)
             for sub in geo.subs:
                 base = len(positions) // 3
                 positions += sub.positions
                 indices += [base + i for i in sub.indices]
                 uvs += sub.uvs if sub.uvs else [0.0] * (sub.vertex_count * 2)
+                if len(sub.normals) == sub.vertex_count * 3:
+                    normals += sub.normals
+                else:
+                    has_complete_normals = False
             is_point = inst.is_point
             # vertex-animation clips targeting this instance's geometry -> each becomes
             # its own named glTF animation (morph targets). `clip` limits to one clip;
@@ -139,6 +168,9 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
                 "positions": positions,
                 "indices": indices,
                 "uvs": uvs,
+                # Away3D may omit this stream; preserve it exactly when every
+                # merged sub-mesh supplies one, otherwise let Blender derive it.
+                "normals": normals if has_complete_normals else [],
                 # points become empties and need no textures; body meshes share the set
                 "textures": {} if is_point else texs,
                 "clips": clips_out,
@@ -209,6 +241,10 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
     out_glb = os.path.join(model, f"{export_name}.glb")
     if run:
         run_blender(scene_json, out_glb, gltf, obj, progress=progress)
+        with open(os.path.join(work, f"{export_name}_build.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump({"version": config.MODEL_BUILD_VERSION,
+                       "source": mesh_name}, f)
     return out_glb
 
 
