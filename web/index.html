@@ -213,7 +213,7 @@ async function select(name){
 }
 
 const HDRIS = ["studio","city","courtyard","forest","interior","night","sunrise","sunset"];
-const num = (k,v,step="") => `<label>${k.label}<input type="number" class="opt" data-key="${k.key}" value="${v}"${step?` step="${step}"`:""}></label>`;
+const num = (k,v,step="",min=null,max=null) => `<label>${k.label}<input type="number" class="opt" data-key="${k.key}" value="${v}"${step?` step="${step}"`:""}${min!==null?` min="${min}"`:""}${max!==null?` max="${max}"`:""}></label>`;
 const color = (k,v) => `<label>${k.label}<input type="color" class="opt" data-key="${k.key}" value="${v}"></label>`;
 
 function saveSettings(){
@@ -258,9 +258,9 @@ function renderActions(){
   if(isEffect()){
     a.innerHTML = `<div class="row">
       <label>export name<input type="text" class="opt" data-key="output_name" placeholder="(same)"></label>
-      ${num({label:"frames",key:"frames"},30)}
-      ${num({label:"resolution",key:"resolution"},256)}
-      ${num({label:"margin",key:"margin"},1.2,"0.05")}
+      ${num({label:"frames",key:"frames"},30,"1",1,600)}
+      ${num({label:"resolution",key:"resolution"},256,"1",16,2048)}
+      ${num({label:"margin",key:"margin"},1.2,"0.05",0.05,10)}
       <button class="act" id="b_fx">Render Effect</button></div>`;
     $("#b_fx").onclick = runFx;
     restoreSettings(saved);
@@ -457,11 +457,18 @@ async function runRender(){
 async function runFx(){
   const s = sel, k = kind;
   const status = t => { if(sameSelection(s,k)) setStatus(t); };
+  const invalid = [...document.querySelectorAll('#actions input[type="number"]')]
+    .find(el=>!el.checkValidity());
+  if(invalid){ invalid.reportValidity(); return; }
   busy(true); setStatus("simulating particles…");
   try{
     const r = await runJob("/api/fx", Object.assign({name:s}, collectOpts()), status);
     const fr = (r && r.frames) || [];
-    if(sameSelection(s,k)){ setStatus(`rendered ${fr.length} frames ✓`); playFrames(fr); }
+    if(sameSelection(s,k)){
+      const missing = r.warnings && r.warnings.length ? ` · missing textures: ${r.warnings.join(", ")}` : "";
+      setStatus(`rendered ${fr.length} frames ✓${missing}`);
+      playFrames(fr); showLinks({archive:r.archive});
+    }
   }catch(e){ if(sameSelection(s,k)) setStatus("error: "+e.message); }
   finally{ if(sameSelection(s,k)) busy(false); }
 }
@@ -471,6 +478,7 @@ function showLinks(r){
   const t = Date.now();
   if(r.glb) l.innerHTML += `<a href="${r.glb}?t=${t}" download>⬇ glb</a>`;
   if(r.coords) l.innerHTML += `<a href="${r.coords}?t=${t}" target="_blank">Coords.json</a>`;
+  if(r.archive) l.innerHTML += `<a href="${r.archive}?t=${t}" download>⬇ frames ZIP</a>`;
 }
 function stopAnim(){ if(timer){ clearInterval(timer); timer=null; } }
 function playFrames(fr){

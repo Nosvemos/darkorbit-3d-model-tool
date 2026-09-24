@@ -71,22 +71,35 @@ def cmd_render(args):
 
 def cmd_fx(args):
     _reject_bulk_custom_name(args)
+    try:
+        fx_render.validate_options(args.frames, args.resolution, args.margin)
+    except ValueError as e:
+        raise SystemExit(f"error: {e}") from e
     names = _stems(config.FX_DIR, "*.zip") if args.all else [args.name] if args.name \
         else None
     if not names:
         raise SystemExit("error: give an effect name or --all")
     for name in names:
         print(f"=== fx {name} ===")
+        warnings = []
         try:
             fx_render.render(name, args.frames, args.resolution, args.margin,
-                             output_name=args.output_name or None)
+                             output_name=args.output_name or None,
+                             warnings=warnings)
         except SystemExit as e:
             print(f"  skip: {e}")
+            continue
+        except ValueError as e:
+            print(f"  skip: {e}")
+            continue
+        if warnings:
+            print(f"  missing textures (white fallback): {', '.join(warnings)}")
 
 
 def cmd_extract_awp(args):
     n, archives = fx_render.extract_all()
-    print(f"extracted {n} .awp from {archives} archives -> {os.path.join(config.FX_DIR, 'awp')}")
+    print(f"extracted {n} .awp from {archives} archives -> "
+          f"{os.path.join(config.FX_DIR, 'awp', 'by_archive')}")
 
 
 def cmd_list(args):

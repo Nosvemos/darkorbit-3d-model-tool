@@ -16,12 +16,38 @@ src/
   pipeline.py         # CLI orchestrator: meshes/ loop
   config.py           # paths, blender exe, output format selection
   render.py             # turntable sprite render orchestrator (Phase 5)
+  fx_render.py        # AWP ZIP selection, isolated extraction, effect frame export
+  fx/
+    awp.py            # AWP JSON parser and value samplers
+    render.py         # particle simulation and 2D billboard compositor
+web/
+  index.html          # local UI for meshes, FX meshes, and particle effects
 out/
   <mesh>/
     model/   <mesh>.glb (+textures/, gltf/, obj/)
     sprites/ <mesh>_1.png ... + <mesh>_Coords.json   # engine_/laserpoint_ coordinates
     work/    intermediate files (scene/cfg/meta json)
+  fx/
+    <fx-mesh>/         # FX AWD model and turntable output
+    effects/<name>/    # AWP PNG frames and downloadable frame ZIP
 ```
+
+## FX mesh and particle effect paths
+
+FX meshes use the ordinary AWD → ATF → scene JSON → Blender path, with sources
+and textures in `fx/` and outputs in `out/fx/<name>/`. Particle Effects are
+independent: the selected ZIP's single AWP is parsed as JSON, particle values
+are sampled with a per-layer deterministic RNG, and Pillow/NumPy composite
+camera-facing sprites under `out/fx/effects/<name>/sprites/`. The output
+namespace is separate because an AWD mesh and an effect ZIP can share a stem.
+Particle sampling is deterministic per layer. Scale and orbit nodes honor their
+cycle/phase values, sprite sheets can use a time cycle, and UV nodes apply a
+sinusoidal offset and texture scale. Rendering remains a front-view 2D projection.
+
+AWP extraction is keyed by the ZIP basename at
+`fx/awp/by_archive/<archive-name>/<inner-awp-name>.awp`. It must not be flattened
+by inner filename: multiple source ZIPs reuse AWP names while containing
+different effect data.
 
 ## Decision 1 — ATF decode: our own decoder
 **Choice**: Write a pure-Python ATF decoder (DXT + LZMA).

@@ -74,7 +74,8 @@ def api_info(q):
                         "tris": geo.triangle_count if geo else 0})
     return {"name": name, "objects": objects,
             "clips": [c.name for c in scene.clips],
-            "textures": pipeline.detect_textures(name, tex_dir),
+            "textures": pipeline.detect_textures(name, tex_dir,
+                                                  single_atf_fallback=fx),
             "channels": list(config.CHANNELS)}
 
 
@@ -122,12 +123,16 @@ def api_fx(body, progress=None):
     name = body["name"]
     if progress:
         progress("simulating particles…")
+    warnings = []
     sprites = fx_render.render(name, int(body.get("frames", 30)),
                                int(body.get("resolution", 256)),
                                float(body.get("margin", 1.2)),
-                               output_name=body.get("output_name") or None)
+                               output_name=body.get("output_name") or None,
+                               warnings=warnings)
     export_name = config.safe_output_name(body.get("output_name"), name)
-    return {"ok": True, "frames": _frame_urls(sprites, export_name)}
+    archive = fx_render.frames_archive_path(sprites, export_name)
+    return {"ok": True, "frames": _frame_urls(sprites, export_name),
+            "archive": _rel_url(archive), "warnings": warnings}
 
 
 # --- background jobs (so long Blender runs stream progress, don't block) -----
@@ -245,7 +250,7 @@ class Handler(BaseHTTPRequestHandler):
         if not os.path.isfile(abs_path):
             return self._send(404, {"error": "not found"})
         ctype = {"html": "text/html", "png": "image/png", "json": "application/json",
-                 "glb": "model/gltf-binary"}.get(abs_path.rsplit(".", 1)[-1],
+                 "zip": "application/zip", "glb": "model/gltf-binary"}.get(abs_path.rsplit(".", 1)[-1],
                                                  "application/octet-stream")
         with open(abs_path, "rb") as f:
             self._send(200, f.read(), ctype)

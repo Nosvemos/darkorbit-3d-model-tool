@@ -44,13 +44,18 @@ def _resolve_atf(spec: str, dirs: list[str]) -> str | None:
     return None
 
 
-def detect_textures(mesh_name: str, textures_dir: str) -> dict[str, str]:
+def detect_textures(mesh_name: str, textures_dir: str,
+                    single_atf_fallback: bool = False) -> dict[str, str]:
     """Auto-detected {channel: atf_basename} for a mesh (for UI pre-fill)."""
     out = {}
     for channel in config.CHANNELS:
         atf = _find_texture(textures_dir, mesh_name, channel)
         if atf:
             out[channel] = os.path.splitext(os.path.basename(atf))[0]
+    if not out and single_atf_fallback:
+        single = os.path.join(textures_dir, f"{mesh_name}.atf")
+        if os.path.exists(single):
+            out["diffuse"] = mesh_name
     return out
 
 

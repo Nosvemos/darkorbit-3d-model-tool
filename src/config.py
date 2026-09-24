@@ -18,7 +18,7 @@ def safe_output_name(name: str | None, fallback: str) -> str:
     """
     raw = str(name or "").strip() or fallback
     raw = raw.replace("\\", "/").rsplit("/", 1)[-1]
-    for ext in (".glb", ".gltf", ".obj", ".png", ".json"):
+    for ext in (".glb", ".gltf", ".obj", ".png", ".json", ".zip"):
         if raw.lower().endswith(ext):
             raw = raw[:-len(ext)]
             break
@@ -48,8 +48,14 @@ def work_dir(mesh: str, base: str = OUT_DIR) -> str:
     return os.path.join(base, mesh, "work")
 
 
-# fx/ meshes and particle effects render under out/fx/<name>/
+# FX meshes keep their existing layout under out/fx/<name>/; particle effects
+# use a separate namespace so identical source stems cannot overwrite frames.
 FX_OUT = os.path.join(OUT_DIR, "fx")
+FX_EFFECTS_OUT = os.path.join(FX_OUT, "effects")
+
+
+def effect_sprites_dir(name: str) -> str:
+    return os.path.join(FX_EFFECTS_OUT, name, "sprites")
 
 # Blender 5.x (Steam). Override with the BLENDER env var if installed elsewhere.
 BLENDER_EXE = os.environ.get(

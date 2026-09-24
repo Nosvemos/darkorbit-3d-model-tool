@@ -72,7 +72,7 @@ same options as their subcommand.
 | `fx`          | Render an `.awp` particle effect to sprite frames    |
 | `list`        | List meshes / fx meshes / effects / textures         |
 | `info`        | Inspect a mesh (objects, points, clips, textures)    |
-| `extract-awp` | Unpack `fx/*.zip` archives into `fx/awp/`            |
+| `extract-awp` | Unpack `fx/*.zip` into archive-isolated `fx/awp/by_archive/` |
 | `ui`          | Launch the local web UI                              |
 
 A mesh name (without extension) is the positional argument for `convert`,
@@ -166,9 +166,9 @@ All defaults live in `RENDER_DEFAULTS`
 | Option            | Default | Description                              |
 |-------------------|---------|------------------------------------------|
 | `--all`           | —       | Render every effect (`fx/*.zip`).        |
-| `--frames N`      | 30      | Frames across the effect duration.       |
-| `--resolution PX` | 256     | Square sprite resolution.                |
-| `--margin F`      | 1.2     | Canvas padding factor.                   |
+| `--frames N`      | 30      | Frames across the effect duration (1–600). |
+| `--resolution PX` | 256     | Square sprite resolution (16–2048 px).   |
+| `--margin F`      | 1.2     | Canvas padding factor (0.05–10).         |
 | `--output-name NAME` | effect name | Custom basename for sprite frames.   |
 
 ## Output structure
@@ -220,9 +220,24 @@ describing an Away3D particle effect.
 
 `do3d fx <name>` simulates the particles in 3D and composites them as
 camera-facing billboards (additive / alpha blend), decoding referenced textures
-straight from the `.atf` assets. Supported nodes: time, position, velocity,
-acceleration, scale, segmented/initial colour, rotation, billboard, orbit,
-oscillator, sprite-sheet (flip-book), and UV scroll.
+from `.atf` or `.png` assets. The sprite renderer supports time, position,
+velocity, acceleration, scale and segmented scale, initial/animated/segmented
+colour, rotation, billboard, Bezier motion, orbit, oscillator, sprite-sheet
+(flip-book), and UV transforms. Scale and orbit cycles honor their duration and
+phase, sprite sheets can animate by cycle time, and UV motion follows Away3D's
+sinusoidal cycle and texture scale. Follow has no displacement for the standalone
+fixed emitter. Missing textures use a white placeholder and are reported after render.
+
+Effects render under `out/fx/effects/<name>/sprites/`; FX mesh models and
+turntables remain under `out/fx/<name>/`. This keeps same-named `.awd` and `.zip`
+assets from overwriting each other's sprite frames. Each effect render also
+creates `<export-name>_frames.zip` beside its PNG frames for convenient download.
+Frames are rendered as a standalone front-view projection; full 3D camera
+projection and client XML placement/scale attributes are not applied.
+
+The `extract-awp` command stores each archive separately under
+`fx/awp/by_archive/<archive-name>/`, since different archives may contain
+different `.awp` files with the same inner filename.
 
 The plain `fx_*.awd` meshes (rings, spheres, shards) convert and render with the
 `--fx` flag, which sources meshes and textures from `fx/` and writes under
