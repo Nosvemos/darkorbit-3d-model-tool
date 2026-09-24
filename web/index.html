@@ -68,11 +68,37 @@
   #list::-webkit-scrollbar, main::-webkit-scrollbar { width:9px; }
   #list::-webkit-scrollbar-thumb, main::-webkit-scrollbar-thumb {
     background:var(--line); border-radius:6px; }
+  [hidden] { display:none !important; }
+  #texture-picker { position:fixed; z-index:10000; overflow-y:auto; overflow-x:hidden;
+                    overscroll-behavior:contain; scrollbar-width:thin;
+                    scrollbar-color:#596170 #23272f; padding:4px;
+                    color:var(--fg); background:var(--panel2);
+                    border:1px solid #49505c; border-radius:7px;
+                    box-shadow:0 8px 24px #0009; }
+  #texture-picker::-webkit-scrollbar { width:10px; }
+  #texture-picker::-webkit-scrollbar-track { background:#23272f; border-radius:6px; }
+  #texture-picker::-webkit-scrollbar-thumb { background:#596170; border:2px solid #23272f;
+                                              border-radius:7px; }
+  #texture-picker [role=option] { display:block; width:100%; height:30px; padding:4px 8px;
+                                  border:0; border-bottom:1px solid #303640;
+                                  background:transparent; color:var(--fg); text-align:left;
+                                  font:12px/21px ui-monospace,SFMono-Regular,Consolas,monospace;
+                                  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+                                  cursor:pointer; }
+  #texture-picker [role=option]:hover, #texture-picker [role=option][aria-selected=true] {
+    background:#343b46; color:#fff; }
+  #texture-picker .picker-message { padding:7px 9px; color:var(--mut); font-size:12px; }
+  @media (max-width:760px) {
+    .wrap { display:block; height:auto; min-height:calc(100vh - 49px); }
+    aside { width:100%; height:220px; border-right:0; border-bottom:1px solid var(--line); }
+    main { overflow:visible; padding:14px; }
+    #viewer { width:min(340px,100%); height:auto; aspect-ratio:1; }
+    input.tex { width:190px; max-width:100%; }
+  }
 </style>
 </head>
 <body>
 <header>DarkOrbit <span>3D</span> Tool</header>
-<datalist id="atflist"></datalist>
 <div class="wrap">
   <aside>
     <div class="tabs">
@@ -111,6 +137,7 @@
     </div>
   </main>
 </div>
+<div id="texture-picker" role="listbox" aria-label="ATF texture suggestions" hidden></div>
 <script>
 const $ = s => document.querySelector(s);
 let kind = "meshes", sel = null, items = [];
@@ -225,6 +252,7 @@ function restoreSettings(saved){
 }
 
 function renderActions(){
+  closeTexturePicker();
   const saved = saveSettings();
   const a = $("#actions");
   if(isEffect()){
@@ -261,7 +289,7 @@ function renderActions(){
     <div style="margin-top:12px">
       <div class="mut" style="font-size:12px;margin-bottom:6px">Textures (.atf — leave blank for auto)</div>
       <div class="row">
-        ${["diffuse","normal","specular","glow","alpha","ao","gal"].map(c=>`<label>${c}<input class="tex" data-ch="${c}" list="atflist" placeholder="(auto)"></label>`).join("")}
+        ${["diffuse","normal","specular","glow","alpha","ao","gal"].map(c=>`<label>${c}<input class="tex" data-ch="${c}" placeholder="(auto)" autocomplete="off"></label>`).join("")}
       </div>
     </div>
     <details style="margin-top:10px">
@@ -280,12 +308,12 @@ function renderActions(){
         ${num({label:"emission",key:"emission_strength"},1,"0.1")}
         ${num({label:"anim start",key:"anim_frame_start"},1)}
         ${num({label:"anim end",key:"anim_frame_end"},"")}
-        ${num({label:"world str",key:"world_strength"},0.2,"0.1")}
-        ${num({label:"sun energy",key:"sun_energy"},1,"0.1")}
+        ${num({label:"world str",key:"world_strength"},0.5,"0.1")}
+        ${num({label:"sun energy",key:"sun_energy"},0.8,"0.1")}
         ${num({label:"sun tilt°",key:"sun_tilt"},100)}
         ${num({label:"sun pan°",key:"sun_pan"},35)}
-        ${color({label:"world color",key:"world_color"},"#ffb2ae")}
-        ${color({label:"sun color",key:"sun_color"},"#ffffff")}
+        ${color({label:"world color",key:"world_color"},"#ff855c")}
+        ${color({label:"sun color",key:"sun_color"},"#a3ffff")}
         <label>camera<select class="opt" data-key="camera_model"><option value="darkorbit">darkorbit</option><option value="orbit">orbit</option></select></label>
         <label>light<select class="opt" data-key="light_model"><option value="darkorbit">darkorbit</option><option value="blender">blender</option></select></label>
         <label>light quality<select class="opt" data-key="light_quality"><option>medium</option><option>low</option><option>high</option></select></label>
@@ -325,7 +353,7 @@ function renderActions(){
   const profiles = {
     darkorbit: {
       camera_model:"darkorbit", light_model:"darkorbit", use_hdri:false,
-      world_strength:0.2, world_color:"#ffb2ae", sun_energy:1, sun_color:"#ffffff",
+      world_strength:0.5, world_color:"#ff855c", sun_energy:0.8, sun_color:"#a3ffff",
       sun_tilt:100, sun_pan:35, emission_strength:1, cam_ortho:false,
       cam_fov:30, cam_tilt:135, cam_pan:25, cam_distance:"",
       light_quality:"medium", hero_light:false
@@ -473,11 +501,182 @@ document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
   loadList();
 });
 let TEX_NAMES = [];
-function fillTexList(q){
-  q = (q||"").toLowerCase();
-  const m = (q ? TEX_NAMES.filter(n=>n.toLowerCase().includes(q)) : TEX_NAMES).slice(0,40);
-  $("#atflist").innerHTML = m.map(n=>`<option value="${n}">`).join("");
+let textureInput = null, textureMatches = [], textureActiveIndex = -1;
+const TEXTURE_ROW_HEIGHT = 30, TEXTURE_OVERSCAN = 3, TEXTURE_VISIBLE_ROWS = 32;
+const texturePicker = $("#texture-picker");
+
+function renderTextureOptions(){
+  const count = textureMatches.length;
+  const previousScrollTop = texturePicker.scrollTop;
+  texturePicker.replaceChildren();
+  if(!TEX_NAMES.length){
+    const msg = document.createElement("div");
+    msg.className = "picker-message";
+    msg.textContent = "Loading texture names…";
+    texturePicker.append(msg);
+    texturePicker.scrollTop = previousScrollTop;
+    return;
+  }
+  if(!count){
+    const msg = document.createElement("div");
+    msg.className = "picker-message";
+    msg.textContent = "No matching textures.";
+    texturePicker.append(msg);
+    texturePicker.scrollTop = previousScrollTop;
+    return;
+  }
+
+  const first = Math.max(0, Math.floor(previousScrollTop / TEXTURE_ROW_HEIGHT) - TEXTURE_OVERSCAN);
+  const last = Math.min(count, first + TEXTURE_VISIBLE_ROWS);
+  if(first){
+    const spacer = document.createElement("div");
+    spacer.setAttribute("aria-hidden", "true");
+    spacer.style.height = `${first * TEXTURE_ROW_HEIGHT}px`;
+    texturePicker.append(spacer);
+  }
+  for(let i=first; i<last; i++){
+    const option = document.createElement("div");
+    option.id = `texture-option-${i}`;
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", String(i === textureActiveIndex));
+    option.setAttribute("aria-posinset", String(i + 1));
+    option.setAttribute("aria-setsize", String(count));
+    option.dataset.index = String(i);
+    option.title = textureMatches[i];
+    option.textContent = textureMatches[i];
+    texturePicker.append(option);
+  }
+  if(last < count){
+    const spacer = document.createElement("div");
+    spacer.setAttribute("aria-hidden", "true");
+    spacer.style.height = `${(count - last) * TEXTURE_ROW_HEIGHT}px`;
+    texturePicker.append(spacer);
+  }
+  texturePicker.scrollTop = previousScrollTop;
 }
+
+function positionTexturePicker(){
+  if(!textureInput || texturePicker.hidden || !textureInput.isConnected) return;
+  const rect = textureInput.getBoundingClientRect();
+  const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  const viewportWidth = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+  const desiredHeight = Math.min(280, Math.max(42, Math.min(textureMatches.length, 8) * TEXTURE_ROW_HEIGHT + 8));
+  const roomBelow = Math.max(0, viewportHeight - rect.bottom - 8);
+  const roomAbove = Math.max(0, rect.top - 8);
+  const openAbove = roomBelow < desiredHeight && roomAbove > roomBelow;
+  const room = openAbove ? roomAbove : roomBelow;
+  const height = Math.max(38, Math.min(desiredHeight, room || desiredHeight));
+  const width = Math.min(Math.max(280, rect.width), Math.max(1, viewportWidth - 16));
+  const left = Math.max(8, Math.min(rect.left, viewportWidth - width - 8));
+  let top = openAbove ? rect.top - height - 4 : rect.bottom + 4;
+  top = Math.max(8, Math.min(top, viewportHeight - height - 8));
+  texturePicker.style.left = `${left}px`;
+  texturePicker.style.top = `${top}px`;
+  texturePicker.style.width = `${width}px`;
+  texturePicker.style.height = `${height}px`;
+}
+
+function openTexturePicker(input, resetScroll=false){
+  if(!input || !input.isConnected) return;
+  if(textureInput !== input){
+    textureInput = input;
+    textureActiveIndex = -1;
+    resetScroll = true;
+  }
+  if(resetScroll) texturePicker.scrollTop = 0;
+  input.setAttribute("role", "combobox");
+  input.setAttribute("aria-autocomplete", "list");
+  input.setAttribute("aria-expanded", "true");
+  input.setAttribute("aria-controls", "texture-picker");
+  input.removeAttribute("aria-activedescendant");
+  const query = input.value.trim().replace(/\.atf$/i, "").toLowerCase();
+  textureMatches = query ? TEX_NAMES.filter(n=>n.toLowerCase().includes(query)) : TEX_NAMES;
+  texturePicker.hidden = false;
+  renderTextureOptions();
+  positionTexturePicker();
+}
+
+function closeTexturePicker(){
+  if(textureInput){
+    textureInput.setAttribute("aria-expanded", "false");
+    textureInput.removeAttribute("aria-activedescendant");
+  }
+  texturePicker.hidden = true;
+  texturePicker.replaceChildren();
+  textureInput = null;
+  textureMatches = [];
+  textureActiveIndex = -1;
+}
+
+function activateTextureOption(index){
+  if(!textureInput || !textureMatches.length) return;
+  textureActiveIndex = Math.max(0, Math.min(index, textureMatches.length - 1));
+  const rowTop = textureActiveIndex * TEXTURE_ROW_HEIGHT;
+  const rowBottom = rowTop + TEXTURE_ROW_HEIGHT;
+  if(rowTop < texturePicker.scrollTop) texturePicker.scrollTop = rowTop;
+  else if(rowBottom > texturePicker.scrollTop + texturePicker.clientHeight)
+    texturePicker.scrollTop = rowBottom - texturePicker.clientHeight;
+  renderTextureOptions();
+  textureInput.setAttribute("aria-activedescendant", `texture-option-${textureActiveIndex}`);
+}
+
+function chooseTextureOption(index){
+  if(!textureInput || !textureMatches[index]) return;
+  const input = textureInput;
+  input.value = textureMatches[index];
+  validateTextureInput(input);
+  input.dispatchEvent(new Event("change", {bubbles:true}));
+  closeTexturePicker();
+  input.focus();
+}
+
+document.addEventListener("focusin", e=>{
+  if(e.target.classList && e.target.classList.contains("tex")) openTexturePicker(e.target, true);
+});
+document.addEventListener("focusout", e=>{
+  if(e.target.classList && e.target.classList.contains("tex"))
+    setTimeout(()=>{ if(textureInput === e.target && document.activeElement !== e.target) closeTexturePicker(); }, 0);
+});
+document.addEventListener("input", e=>{
+  if(e.target.classList && e.target.classList.contains("tex")){
+    validateTextureInput(e.target);
+    openTexturePicker(e.target, true);
+  }
+});
+document.addEventListener("keydown", e=>{
+  if(!e.target.classList || !e.target.classList.contains("tex")) return;
+  if(e.key === "ArrowDown" || e.key === "ArrowUp"){
+    e.preventDefault();
+    if(textureInput !== e.target || texturePicker.hidden) openTexturePicker(e.target);
+    if(textureMatches.length){
+      const step = e.key === "ArrowDown" ? 1 : -1;
+      activateTextureOption(textureActiveIndex < 0 ? (step > 0 ? 0 : textureMatches.length - 1) : textureActiveIndex + step);
+    }
+  } else if(e.key === "Enter" && textureInput === e.target && textureActiveIndex >= 0){
+    e.preventDefault();
+    chooseTextureOption(textureActiveIndex);
+  } else if(e.key === "Escape" && textureInput === e.target){
+    e.preventDefault();
+    closeTexturePicker();
+  }
+});
+texturePicker.addEventListener("scroll", renderTextureOptions);
+texturePicker.addEventListener("pointerdown", e=>{
+  const option = e.target.closest("[role=option]");
+  if(option) e.preventDefault();
+});
+texturePicker.addEventListener("click", e=>{
+  const option = e.target.closest("[role=option]");
+  if(option) chooseTextureOption(+option.dataset.index);
+});
+document.addEventListener("pointerdown", e=>{
+  if(texturePicker.hidden || texturePicker.contains(e.target) ||
+     (e.target.classList && e.target.classList.contains("tex"))) return;
+  closeTexturePicker();
+});
+window.addEventListener("resize", positionTexturePicker);
+window.addEventListener("scroll", positionTexturePicker, true);
+
 function validateTextureInput(el){
   const val = el.value.trim();
   if(!val){ el.style.borderColor = ""; return; }
@@ -491,18 +690,11 @@ function validateTextureInput(el){
 async function loadTextures(){
   try{
     TEX_NAMES = (await jget("/api/textures")).items;
-    fillTexList("");
     document.querySelectorAll(".tex").forEach(validateTextureInput);
+    if(textureInput && document.activeElement === textureInput) openTexturePicker(textureInput, true);
   }
   catch(e){}
 }
-// keep the texture datalist short (filter as you type) so the popup stays small
-document.addEventListener("input", e=>{
-  if(e.target.classList && e.target.classList.contains("tex")) {
-    fillTexList(e.target.value);
-    validateTextureInput(e.target);
-  }
-});
 loadList(); loadTextures();
 </script>
 </body>

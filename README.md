@@ -135,8 +135,8 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--profile NAME`     | `darkorbit`   | Visual profile: `darkorbit` or `studio`. |
 | `--hdri FILE`        | `studio.exr`  | Bundled world HDRI; also enables HDRI.   |
 | `--use-hdri` / `--no-hdri` | off in `darkorbit` | Toggle Blender HDRI world lighting. |
-| `--world-strength F` | 0.2           | DarkOrbit ambient/world strength.        |
-| `--sun-energy F`     | 1.0           | Sun lamp energy.                         |
+| `--world-strength F` | 0.5           | DarkOrbit ambient scalar mapped to Blender world strength. |
+| `--sun-energy F`     | 0.8           | DarkOrbit diffuse scalar mapped to Blender sun energy. |
 | `--emission F`       | 1.0           | Glow/emission map multiplier.            |
 | `--camera-model NAME`| `darkorbit`   | `darkorbit` Observer3D tilt/pan or `orbit`. |
 | `--cam-tilt D`       | 135           | DarkOrbit Observer3D camera tilt.        |
@@ -152,8 +152,8 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--light-quality NAME` | `medium`    | `low` disables sun; `high` adds hero point light. |
 | `--hero-light` / `--no-hero-light` | off | Toggle hero-position point light. |
 | `--margin F`         | 1.15          | Framing padding factor (> 1 zooms out).  |
-| `--sun-color HEX`    | `#ffffff`     | Sun light color.                         |
-| `--world-color HEX`  | `#ffb2ae`     | DarkOrbit ambient color.                 |
+| `--sun-color HEX`    | `#a3ffff`     | DarkOrbit default 3D map light color.     |
+| `--world-color HEX`  | `#ff855c`     | DarkOrbit default 3D map ambient color.  |
 | `--overlay NAME`     | —             | Overlay another mesh (AWD) on top of the main model. |
 
 Bundled HDRIs: `studio` · `city` · `courtyard` · `forest` · `interior` · `night`

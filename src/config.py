@@ -60,18 +60,19 @@ BLENDER_EXE = os.environ.get(
 BUILD_SCENE_SCRIPT = os.path.join(ROOT, "src", "blender", "build_scene.py")
 RENDER_SCRIPT = os.path.join(ROOT, "src", "blender", "render_sprites.py")
 
-# Named visual profiles applied before per-run overrides. The default profile is
-# based on the AS3 client: MapView3D uses PerspectiveLens(30), Observer3D starts
-# at tilt=135/pan=25, and LightSettings drives a directional sun by tilt/pan.
+# Named visual profiles applied before per-run overrides. The DarkOrbit map
+# lighting values follow the default 3D map entries in the reference
+# spacemap/graphics/maps-config.xml. Blender's energy/strength units are an
+# approximation of Away3D's diffuse/ambient scalars; see docs/06_darkorbit_profile_reference.md.
 RENDER_PROFILES = {
     "darkorbit": {
         "camera_model": "darkorbit",
         "light_model": "darkorbit",
         "use_hdri": False,
-        "world_strength": 0.2,
-        "world_color": "#ffb2ae",
-        "sun_energy": 1.0,
-        "sun_color": "#ffffff",
+        "world_strength": 0.5,
+        "world_color": "#ff855c",
+        "sun_energy": 0.8,
+        "sun_color": "#a3ffff",
         "sun_tilt": 100.0,
         "sun_pan": 35.0,
         "emission_strength": 1.0,
@@ -131,11 +132,11 @@ RENDER_DEFAULTS = {
     "light_model": "darkorbit",   # darkorbit LightSettings tilt/pan, or blender
     "use_hdri": False,
     "world_hdri": "studio.exr",   # bundled Blender studio light (when use_hdri)
-    "world_strength": 0.2,
-    "world_color": "#ffb2ae",     # DarkOrbit map ambientColor default
+    "world_strength": 0.5,         # map ambient=0.5 (Blender strength approximation)
+    "world_color": "#ff855c",     # map ambientColor=0xFF855C
 
-    "sun_energy": 1.0,
-    "sun_color": "#ffffff",    # light color for the sun
+    "sun_energy": 0.8,             # map diffuse=0.8 (Blender energy approximation)
+    "sun_color": "#a3ffff",       # map color=0xA3FFFF
     "sun_angle": [50.0, 0.0, 40.0],   # degrees, XYZ euler
     "sun_tilt": 100.0,         # DarkOrbit Settings3D.sunLight.directionTilt
     "sun_pan": 35.0,           # DarkOrbit Settings3D.sunLight.directionPan
