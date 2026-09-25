@@ -10,9 +10,46 @@
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--fg);
          font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
-  header { padding:12px 18px; border-bottom:1px solid var(--line);
+  header { position:relative; z-index:20; display:flex; align-items:center;
+           min-height:49px; padding:6px 18px; border-bottom:1px solid var(--line);
            font-weight:600; letter-spacing:.3px; }
-  header span { color:var(--acc); }
+  .brand { white-space:nowrap; }
+  .brand span { color:var(--acc); }
+  .queue-control { position:relative; margin-left:42px; font-weight:400;
+                   letter-spacing:normal; }
+  .queue-trigger { position:relative; display:grid; place-items:center; width:36px; height:36px;
+    padding:0; color:var(--mut); background:transparent; border:1px solid transparent;
+    border-radius:7px; cursor:pointer; }
+  .queue-trigger:hover, .queue-trigger:focus-visible, .queue-control[data-open="true"] .queue-trigger {
+    color:var(--fg); background:var(--panel2); border-color:var(--line); outline:none; }
+  .queue-trigger[data-state="running"] { color:#8bd2ff; }
+  .queue-trigger[data-state="queued"] { color:#ffd09b; }
+  .queue-trigger[data-state="paused"] { color:#ffcb76; }
+  .queue-trigger[data-state="done"] { color:#9be3ad; }
+  .queue-trigger[data-state="error"] { color:#ff9b9b; }
+  .queue-trigger svg { width:20px; height:20px; fill:none; stroke:currentColor;
+    stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  .queue-indicator { position:absolute; right:2px; bottom:2px; width:9px; height:9px;
+    border:1px solid var(--panel); border-radius:50%; background:#77808d; }
+  .queue-indicator[hidden] { display:none; }
+  .queue-indicator.running { border:2px solid #8bd2ff; border-right-color:transparent;
+    background:var(--panel); animation:queue-spin .9s linear infinite; }
+  .queue-indicator.queued { background:#ffd09b; }
+  .queue-indicator.paused { width:10px; border-radius:3px; background:#ffcb76; }
+  .queue-indicator.done { background:#9be3ad; }
+  .queue-indicator.error { background:#ff9b9b; }
+  @keyframes queue-spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion:reduce) { .queue-indicator.running { animation:none; } }
+  .queue-badge { position:absolute; top:-3px; right:-4px; min-width:17px; height:17px;
+    padding:0 4px; display:grid; place-items:center; border:2px solid var(--panel);
+    border-radius:10px; background:var(--acc); color:#201006; font:700 10px/1 system-ui,sans-serif; }
+  .queue-badge.history { min-width:9px; width:9px; height:9px; top:1px; right:0;
+    padding:0; border:1px solid var(--panel); }
+  .queue-popover { position:absolute; top:100%; left:0; width:min(410px,calc(100vw - 36px));
+    max-height:min(70vh,560px); display:flex; flex-direction:column; overflow:hidden;
+    color:var(--fg); background:var(--panel); border:1px solid #3a414d; border-radius:9px;
+    box-shadow:0 12px 32px #000b; }
+  .queue-popover[hidden] { display:none; }
   .wrap { display:flex; height:calc(100vh - 49px); }
   aside { width:280px; border-right:1px solid var(--line); display:flex;
           flex-direction:column; background:var(--panel); }
@@ -54,17 +91,30 @@
             display:flex; align-items:center; justify-content:center; }
   #viewer img { max-width:100%; max-height:100%; image-rendering:auto; }
   .links a { color:var(--acc2); margin-right:14px; }
-  .queue-card { padding:12px 14px; }
-  .queue-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-  .queue-heading { display:flex; align-items:baseline; flex-wrap:wrap; gap:10px; }
-  .queue-heading h2 { font-size:16px; margin:0; }
-  .queue-head-actions { display:flex; align-items:center; gap:8px; }
+  .queue-head { flex:0 0 auto; display:grid; gap:10px;
+    padding:12px 14px; border-bottom:1px solid var(--line); }
+  .queue-title-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .queue-heading { min-width:0; display:flex; flex-direction:column; gap:1px; }
+  .queue-heading h2 { font-size:15px; margin:0; }
+  #queue-summary { font-size:12px; }
+  .queue-head-actions { display:flex; align-items:center; flex-wrap:wrap; gap:7px; }
   .queue-toggle, .queue-cancel { background:var(--panel2); color:var(--fg);
     border:1px solid var(--line); border-radius:6px; padding:5px 9px; cursor:pointer; }
+  .queue-toggle { display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+  .queue-toggle svg { width:14px; height:14px; fill:none; stroke:currentColor;
+    stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .queue-run-toggle { margin-right:auto; color:#ffcb76; }
+  .queue-run-toggle.resume { color:#9be3ad; }
+  .queue-close { width:28px; height:28px; padding:0; font-size:20px; line-height:1; }
   .queue-cancel { color:#ffb3a9; border-color:#69433f; }
   .queue-toggle:hover, .queue-cancel:hover { filter:brightness(1.2); }
   .queue-toggle:disabled, .queue-cancel:disabled { opacity:.5; cursor:default; }
-  #queue-list { display:grid; gap:8px; margin-top:10px; }
+  #queue-list { flex:1 1 auto; display:grid; gap:8px; padding:10px; overflow-y:auto; min-height:0;
+    overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:#596170 #23272f; }
+  #queue-list::-webkit-scrollbar { width:9px; }
+  #queue-list::-webkit-scrollbar-track { background:#23272f; }
+  #queue-list::-webkit-scrollbar-thumb { background:#596170; border:2px solid #23272f;
+    border-radius:7px; }
   .queue-job { background:var(--panel2); border:1px solid var(--line); border-radius:7px;
     padding:9px 11px; min-width:0; }
   .queue-job-top { display:flex; justify-content:space-between; align-items:center;
@@ -84,7 +134,7 @@
   .queue-job-log { margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .queue-links { margin-top:5px; display:flex; gap:12px; flex-wrap:wrap; font-size:12px; }
   .queue-links a { color:var(--acc2); }
-  .queue-empty { margin-top:8px; font-size:12px; }
+  .queue-empty { padding:0 14px 14px; font-size:12px; }
   .pill { font-size:11px; background:var(--panel2); border:1px solid var(--line);
           padding:2px 8px; border-radius:20px; color:var(--mut); }
   header { background:linear-gradient(90deg,#1d2026,#15171c); }
@@ -120,6 +170,8 @@
     background:#343b46; color:#fff; }
   #texture-picker .picker-message { padding:7px 9px; color:var(--mut); font-size:12px; }
   @media (max-width:760px) {
+    .queue-control { margin-left:auto; }
+    .queue-popover { left:auto; right:-12px; width:min(410px,calc(100vw - 24px)); }
     .wrap { display:block; height:auto; min-height:calc(100vh - 49px); }
     aside { width:100%; height:220px; border-right:0; border-bottom:1px solid var(--line); }
     main { overflow:visible; padding:14px; }
@@ -129,7 +181,39 @@
 </style>
 </head>
 <body>
-<header>DarkOrbit <span>3D</span> Tool</header>
+<header>
+  <div class="brand">DarkOrbit <span>3D</span> Tool</div>
+  <div id="queue-control" class="queue-control">
+    <button id="queue-trigger" class="queue-trigger" type="button" aria-label="Render queue"
+      aria-haspopup="dialog" aria-expanded="false" aria-controls="queue-popover" title="Render queue">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+      <span id="queue-indicator" class="queue-indicator" aria-hidden="true" hidden></span>
+      <span id="queue-badge" class="queue-badge" hidden></span>
+    </button>
+    <section id="queue-popover" class="queue-popover" role="dialog" aria-modal="false"
+      aria-labelledby="queue-title" hidden>
+      <div class="queue-head">
+        <div class="queue-title-row">
+          <div class="queue-heading">
+            <h2 id="queue-title">Render queue</h2>
+            <span id="queue-summary" class="mut" aria-live="polite">Loading jobs…</span>
+          </div>
+          <button class="queue-toggle queue-close" id="queue-close" type="button" aria-label="Close render queue" title="Close">×</button>
+        </div>
+        <div class="queue-head-actions">
+          <button class="queue-toggle queue-run-toggle" id="queue-run-toggle" type="button">
+            <svg id="queue-run-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3v10M11 3v10"/></svg>
+            <span id="queue-run-label">Pause queue</span>
+          </button>
+          <button class="queue-toggle" id="queue-history" type="button" hidden>Show history</button>
+          <button class="queue-toggle" id="queue-refresh" type="button" title="Refresh queue">Refresh</button>
+        </div>
+      </div>
+      <div id="queue-list"></div>
+      <div id="queue-empty" class="queue-empty mut" hidden>No queued or recent jobs. Start a render, conversion, or effect simulation to add one.</div>
+    </section>
+  </div>
+</header>
 <div class="wrap">
   <aside>
     <div class="tabs">
@@ -141,20 +225,6 @@
     <div id="list"></div>
   </aside>
   <main>
-    <section class="card queue-card" aria-label="Render queue">
-      <div class="queue-head">
-        <div class="queue-heading">
-          <h2>Render queue</h2>
-          <span id="queue-summary" class="mut" aria-live="polite">Loading jobs…</span>
-        </div>
-        <div class="queue-head-actions">
-          <button class="queue-toggle" id="queue-history" type="button" hidden>Show history</button>
-          <button class="queue-toggle" id="queue-refresh" type="button" title="Refresh queue">Refresh</button>
-        </div>
-      </div>
-      <div id="queue-list"></div>
-      <div id="queue-empty" class="queue-empty mut" hidden>No queued or recent jobs. Start a render, conversion, or effect simulation to add one.</div>
-    </section>
     <div id="empty" class="mut">Select an asset on the left.</div>
     <div id="detail" style="display:none">
       <h2 id="title"></h2>
@@ -188,6 +258,7 @@ const $ = s => document.querySelector(s);
 let kind = "meshes", sel = null, items = [];
 let frames = [], fi = 0, timer = null;
 let queueHistoryVisible = false;
+let queueOpen = false, queuePaused = false;
 
 const isFx = () => kind === "fx";
 const isEffect = () => kind === "effects";
@@ -236,6 +307,26 @@ function addQueueLink(parent, href, label){
   if(label === "GLB" || label === "Frames ZIP") link.download = "";
   parent.append(link);
 }
+function setQueueOpen(open, restoreFocus=false){
+  queueOpen = !!open;
+  $("#queue-popover").hidden = !queueOpen;
+  $("#queue-control").dataset.open = String(queueOpen);
+  $("#queue-trigger").setAttribute("aria-expanded", String(queueOpen));
+  if(restoreFocus) $("#queue-trigger").focus();
+}
+const queueControl = $("#queue-control");
+$("#queue-trigger").addEventListener("click", ()=>{
+  setQueueOpen(!queueOpen);
+});
+$("#queue-close").addEventListener("click", ()=>{
+  setQueueOpen(false, true);
+});
+document.addEventListener("pointerdown", e=>{
+  if(queueOpen && !queueControl.contains(e.target)) setQueueOpen(false);
+});
+document.addEventListener("keydown", e=>{
+  if(e.key === "Escape" && queueOpen) setQueueOpen(false, true);
+});
 function renderQueue(data){
   const jobs = data.jobs || [];
   const list = $("#queue-list");
@@ -248,6 +339,46 @@ function renderQueue(data){
   $("#queue-summary").textContent = running || queued
     ? `${running} running · ${queued} waiting`
     : history.length ? "Idle · recent jobs below" : "Idle";
+  queuePaused = !!data.paused;
+  const summary = $("#queue-summary");
+  if(queuePaused){
+    summary.textContent = running
+      ? "Paused after current job · " + queued + " waiting"
+      : queued ? "Paused · " + queued + " waiting" : "Paused · new jobs will wait";
+  } else if(running || queued){
+    summary.textContent = running + " running · " + queued + " waiting";
+  } else {
+    summary.textContent = history.length ? "Idle · recent jobs below" : "Idle";
+  }
+  const runToggle = $("#queue-run-toggle");
+  const runLabel = queuePaused ? "Resume queue"
+    : running ? "Pause after current" : "Pause queue";
+  $("#queue-run-label").textContent = runLabel;
+  runToggle.setAttribute("aria-label", runLabel);
+  runToggle.title = queuePaused ? "Resume starting queued jobs"
+    : running ? "Finish the active job, then pause the queue"
+    : "Hold queued and future jobs";
+  runToggle.classList.toggle("resume", queuePaused);
+  $("#queue-run-icon").innerHTML = queuePaused
+    ? '<path d="m5 3 9 5-9 5z"/>'
+    : '<path d="M5 3v10M11 3v10"/>';
+  const badge = $("#queue-badge");
+  const activeCount = running + queued;
+  badge.classList.toggle("history", !activeCount && history.length > 0);
+  badge.textContent = activeCount ? String(activeCount > 99 ? "99+" : activeCount) : "";
+  badge.hidden = !activeCount && history.length === 0;
+  const state = queuePaused ? "paused" : running ? "running" : queued ? "queued"
+    : history.some(j=>j.status === "error") ? "error" : history.length ? "done" : "idle";
+  const indicator = $("#queue-indicator");
+  indicator.className = "queue-indicator " + state;
+  indicator.hidden = state === "idle";
+  const triggerLabel = queuePaused
+    ? "Render queue paused, " + queued + " waiting"
+    : activeCount ? "Render queue, " + running + " running and " + queued + " waiting"
+    : history.length ? "Render queue, " + history.length + " recent jobs" : "Render queue";
+  $("#queue-trigger").dataset.state = state;
+  $("#queue-trigger").setAttribute("aria-label", triggerLabel);
+  $("#queue-trigger").title = triggerLabel;
   const historyButton = $("#queue-history");
   historyButton.hidden = history.length <= 3;
   historyButton.textContent = queueHistoryVisible ? "Hide history" : `Show history (${history.length})`;
@@ -311,6 +442,18 @@ async function refreshJobs(){
 }
 $("#queue-refresh").onclick = refreshJobs;
 $("#queue-history").onclick = ()=>{ queueHistoryVisible=!queueHistoryVisible; refreshJobs(); };
+$("#queue-run-toggle").addEventListener("click", async ()=>{
+  const button = $("#queue-run-toggle");
+  button.disabled = true;
+  try {
+    await jpost("/api/queue/control", {action:queuePaused ? "resume" : "pause"});
+    await refreshJobs();
+  } catch(e) {
+    $("#queue-summary").textContent = "Queue control failed · " + e.message;
+  } finally {
+    button.disabled = false;
+  }
+});
 refreshJobs();
 setInterval(refreshJobs, 1000);
 

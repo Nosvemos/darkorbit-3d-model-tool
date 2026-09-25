@@ -218,10 +218,16 @@ same functions as the CLI.
 
 The queue panel shows the active job, waiting jobs, and recent results. Jobs run
 one at a time; you can keep browsing and enqueue more work while one is running,
-cancel a waiting job, or stop the active render. Stopping a job terminates its
-Blender process and removes that job's partial output. Existing output folders
-are preserved: if an export name is already present or reserved, the UI assigns
+pause the queue after the current job, resume it, cancel a waiting job, or stop
+the active render. Stopping a job terminates its Blender process and removes
+that job's partial output. Existing output folders are preserved: if an export
+name is already present or reserved, the UI assigns
 a unique `__job<N>` suffix and shows the final name in the queue.
+
+The toolbar queue icon reflects running, waiting, paused, and completed states.
+The queue popover opens on click and closes with the same icon, an outside click,
+or Escape. Pausing lets the active job finish, then holds queued and future work
+until the queue is resumed.
 
 ## FX / particle effects
 

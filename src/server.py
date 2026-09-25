@@ -163,6 +163,8 @@ _JOBS: dict = {}
 _LOCK = threading.Lock()
 _SEQ = [0]
 _QUEUE = queue.Queue()
+_QUEUE_WAKE = threading.Event()
+_QUEUE_PAUSED = [False]
 _WORKER_STARTED = [False]
 _RESERVED_OUTPUTS: dict[str, str] = {}
 
@@ -308,15 +310,28 @@ def _release_reservation_locked(job: dict):
 
 def _job_worker():
     while True:
-        jid, fn = _QUEUE.get()
+        item = None
         with _LOCK:
-            job = _JOBS.get(jid)
-            if job and job["status"] == "queued":
-                job["status"] = "running"
-                job["started_at"] = time.time()
-                job["log"].append("started")
+            if not _QUEUE_PAUSED[0]:
+                try:
+                    item = _QUEUE.get_nowait()
+                except queue.Empty:
+                    pass
+            if item:
+                jid, fn = item
+                job = _JOBS.get(jid)
+                if job and job["status"] == "queued":
+                    job["status"] = "running"
+                    job["started_at"] = time.time()
+                    job["log"].append("started")
+                else:
+                    job = None
             else:
                 job = None
+        if item is None:
+            _QUEUE_WAKE.wait(0.5)
+            _QUEUE_WAKE.clear()
+            continue
         if not job:
             _QUEUE.task_done()
             continue
@@ -387,8 +402,22 @@ def _start_job(fn, endpoint=None, body=None):
             job["cleanup"] = cleanup
         _JOBS[jid] = job
         _QUEUE.put((jid, fn))
+        _QUEUE_WAKE.set()
         _ensure_worker_locked()
     return jid
+
+
+def api_queue_control(action: str):
+    if action not in {"pause", "resume"}:
+        return {"ok": False, "error": "action must be pause or resume"}
+    with _LOCK:
+        _QUEUE_PAUSED[0] = action == "pause"
+        _QUEUE_WAKE.set()
+        running = sum(job["status"] in {"running", "cancelling"}
+                      for job in _JOBS.values())
+        queued = sum(job["status"] == "queued" for job in _JOBS.values())
+        return {"ok": True, "paused": _QUEUE_PAUSED[0],
+                "running": running, "queued": queued}
 
 
 def api_job(q):
@@ -407,6 +436,7 @@ def api_job(q):
 
 def api_jobs(_q=None):
     with _LOCK:
+        paused = _QUEUE_PAUSED[0]
         jobs = list(_JOBS.values())
         views = []
         for job in jobs:
@@ -433,7 +463,7 @@ def api_jobs(_q=None):
                     key=lambda j: j["queue_position"])
     history = sorted((j for j in views if j["status"] in {"done", "error", "cancelled"}),
                      key=lambda j: int(j["id"]), reverse=True)[:12]
-    return {"jobs": active + queued + history,
+    return {"jobs": active + queued + history, "paused": paused,
             "counts": {"running": len(active), "queued": len(queued),
                        "finished": len(history)}}
 
@@ -512,6 +542,9 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         length = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(length) or b"{}")
+        if u.path == "/api/queue/control":
+            result = api_queue_control(str(body.get("action") or ""))
+            return self._send(200 if result["ok"] else 400, result)
         if u.path == "/api/job/cancel":
             result = api_cancel_job(str(body.get("id") or ""))
             return self._send(200 if result["ok"] else 404, result)
