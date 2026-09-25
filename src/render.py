@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import CancelledError
 import glob
 import json
 import os
@@ -32,7 +33,8 @@ def _clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
 
-def stable_crop(out_dir: str, raw: dict, padding: int, origin: str, align_box: list[int] | None = None) -> dict:
+def stable_crop(out_dir: str, raw: dict, padding: int, origin: str,
+                align_box: list[int] | None = None, cancel_check=None) -> dict:
     """Crop every frame to one global alpha+point bbox; return adjusted coords."""
     res = raw["resolution"]
     paths = [os.path.join(out_dir, fn) for fn in raw["frames"]]
@@ -44,6 +46,8 @@ def stable_crop(out_dir: str, raw: dict, padding: int, origin: str, align_box: l
         gx1 = gy1 = res
         gx2 = gy2 = 0
         for i, path in enumerate(paths):
+            if cancel_check:
+                cancel_check()
             alpha = Image.open(path).convert("RGBA").split()[-1]
             bbox = alpha.point(lambda p: 255 if p > 10 else 0).getbbox()
             if not bbox:
@@ -64,6 +68,8 @@ def stable_crop(out_dir: str, raw: dict, padding: int, origin: str, align_box: l
             gx1, gy1, gx2, gy2 = 0, 0, res, res
     crop_h = gy2 - gy1
     for path in paths:
+        if cancel_check:
+            cancel_check()
         Image.open(path).convert("RGBA").crop((gx1, gy1, gx2, gy2)).save(path)
 
     adjusted: dict[str, list] = {}
@@ -84,7 +90,15 @@ def stable_crop(out_dir: str, raw: dict, padding: int, origin: str, align_box: l
 def render(mesh_name: str, overrides: dict, fx: bool = False,
            textures: dict | None = None, clip: str | None = None,
            overlay: str | None = None, output_name: str | None = None,
-           progress=None) -> str:
+           progress=None, cancel_event=None, process_callback=None,
+           cancel_check=None) -> str:
+    def check_cancelled():
+        if cancel_check:
+            cancel_check()
+        elif cancel_event is not None and cancel_event.is_set():
+            raise CancelledError("job cancelled")
+
+    check_cancelled()
     export_name = config.safe_output_name(output_name, mesh_name)
     base = config.FX_OUT if fx else config.OUT_DIR
     glb = os.path.join(config.model_dir(export_name, base), f"{export_name}.glb")
@@ -103,8 +117,10 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
         if progress:
             progress("building glb…")
         convert(mesh_name, fx=fx, textures=textures, clip=clip, overlay=overlay,
-                output_name=export_name, hide_objects=hide_objs, progress=progress)
+                output_name=export_name, hide_objects=hide_objs, progress=progress,
+                cancel_event=cancel_event, process_callback=process_callback)
 
+    check_cancelled()
     work = config.work_dir(export_name, base)
     sprites = config.sprites_dir(export_name, base)
     os.makedirs(work, exist_ok=True)
@@ -128,7 +144,9 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
     if progress:
         progress("rendering frames…")
     run_cmd([config.BLENDER_EXE, "--background", "--python",
-             config.RENDER_SCRIPT, "--", glb, sprites, cfg_path], progress)
+             config.RENDER_SCRIPT, "--", glb, sprites, cfg_path], progress,
+            cancel_event=cancel_event, process_callback=process_callback)
+    check_cancelled()
 
     raw_path = os.path.join(sprites, f"{export_name}_render_raw.json")
     with open(raw_path, encoding="utf-8") as f:
@@ -169,7 +187,8 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
 
     if cfg["stable_crop"] or align_box:
         coords, meta = stable_crop(sprites, raw, cfg["crop_padding"],
-                                   cfg["coord_origin"], align_box=align_box)
+                                   cfg["coord_origin"], align_box=align_box,
+                                   cancel_check=check_cancelled)
     else:
         coords = {k: [[int(round(v[0])), int(round(v[1]))] if v else "OFF"
                       for v in vals] for k, vals in raw["points"].items()}

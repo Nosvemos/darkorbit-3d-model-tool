@@ -216,6 +216,13 @@ when auto-detection misses, an export-name field controls output basenames, and
 an animation-clip selector picks which clip to play. Every action maps to the
 same functions as the CLI.
 
+The queue panel shows the active job, waiting jobs, and recent results. Jobs run
+one at a time; you can keep browsing and enqueue more work while one is running,
+cancel a waiting job, or stop the active render. Stopping a job terminates its
+Blender process and removes that job's partial output. Existing output folders
+are preserved: if an export name is already present or reserved, the UI assigns
+a unique `__job<N>` suffix and shows the final name in the queue.
+
 ## FX / particle effects
 
 The `fx/` folder holds particle assets: `fx_*.awd` meshes, `.atf` textures, and

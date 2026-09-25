@@ -54,6 +54,37 @@
             display:flex; align-items:center; justify-content:center; }
   #viewer img { max-width:100%; max-height:100%; image-rendering:auto; }
   .links a { color:var(--acc2); margin-right:14px; }
+  .queue-card { padding:12px 14px; }
+  .queue-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .queue-heading { display:flex; align-items:baseline; flex-wrap:wrap; gap:10px; }
+  .queue-heading h2 { font-size:16px; margin:0; }
+  .queue-head-actions { display:flex; align-items:center; gap:8px; }
+  .queue-toggle, .queue-cancel { background:var(--panel2); color:var(--fg);
+    border:1px solid var(--line); border-radius:6px; padding:5px 9px; cursor:pointer; }
+  .queue-cancel { color:#ffb3a9; border-color:#69433f; }
+  .queue-toggle:hover, .queue-cancel:hover { filter:brightness(1.2); }
+  .queue-toggle:disabled, .queue-cancel:disabled { opacity:.5; cursor:default; }
+  #queue-list { display:grid; gap:8px; margin-top:10px; }
+  .queue-job { background:var(--panel2); border:1px solid var(--line); border-radius:7px;
+    padding:9px 11px; min-width:0; }
+  .queue-job-top { display:flex; justify-content:space-between; align-items:center;
+    gap:10px; }
+  .queue-job-title { display:flex; align-items:center; flex-wrap:wrap; gap:7px; min-width:0; }
+  .queue-job-title strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .queue-state { font-size:11px; border:1px solid var(--line); border-radius:20px;
+    padding:1px 8px; color:var(--mut); white-space:nowrap; }
+  .queue-state.running { color:#8bd2ff; border-color:#31516a; }
+  .queue-state.queued { color:#ffd09b; border-color:#695136; }
+  .queue-state.cancelling { color:#ffcb76; border-color:#695136; }
+  .queue-state.done { color:#9be3ad; border-color:#355f40; }
+  .queue-state.error { color:#ff9b9b; border-color:#694040; }
+  .queue-state.cancelled { color:#a9adb5; }
+  .queue-job-meta, .queue-job-log { color:var(--mut); font-size:12px; overflow-wrap:anywhere; }
+  .queue-job-meta { margin-top:3px; }
+  .queue-job-log { margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .queue-links { margin-top:5px; display:flex; gap:12px; flex-wrap:wrap; font-size:12px; }
+  .queue-links a { color:var(--acc2); }
+  .queue-empty { margin-top:8px; font-size:12px; }
   .pill { font-size:11px; background:var(--panel2); border:1px solid var(--line);
           padding:2px 8px; border-radius:20px; color:var(--mut); }
   header { background:linear-gradient(90deg,#1d2026,#15171c); }
@@ -110,6 +141,20 @@
     <div id="list"></div>
   </aside>
   <main>
+    <section class="card queue-card" aria-label="Render queue">
+      <div class="queue-head">
+        <div class="queue-heading">
+          <h2>Render queue</h2>
+          <span id="queue-summary" class="mut" aria-live="polite">Loading jobs…</span>
+        </div>
+        <div class="queue-head-actions">
+          <button class="queue-toggle" id="queue-history" type="button" hidden>Show history</button>
+          <button class="queue-toggle" id="queue-refresh" type="button" title="Refresh queue">Refresh</button>
+        </div>
+      </div>
+      <div id="queue-list"></div>
+      <div id="queue-empty" class="queue-empty mut" hidden>No queued or recent jobs. Start a render, conversion, or effect simulation to add one.</div>
+    </section>
     <div id="empty" class="mut">Select an asset on the left.</div>
     <div id="detail" style="display:none">
       <h2 id="title"></h2>
@@ -142,6 +187,7 @@
 const $ = s => document.querySelector(s);
 let kind = "meshes", sel = null, items = [];
 let frames = [], fi = 0, timer = null;
+let queueHistoryVisible = false;
 
 const isFx = () => kind === "fx";
 const isEffect = () => kind === "effects";
@@ -153,6 +199,7 @@ const sleep = ms => new Promise(r=>setTimeout(r,ms));
 async function runJob(endpoint, body, updateStatus){
   updateStatus = updateStatus || setStatus;
   const {job} = await jpost(endpoint, body);
+  refreshJobs();
   const t0 = Date.now();
   while(true){
     await sleep(700);
@@ -163,11 +210,109 @@ async function runJob(endpoint, body, updateStatus){
       const pos = s.queue_position ? ` #${s.queue_position}` : "";
       updateStatus(`queued${pos} (${secs}s)`.slice(0,90));
     }
-    else if(s.status==="running") updateStatus(`(${secs}s) ${last}`.slice(0,90));
+    else if(s.status==="running" || s.status==="cancelling") updateStatus(`${s.status} · ${secs}s · ${last}`.slice(0,90));
     else if(s.status==="done") return s.result;
     else throw new Error(s.error || s.status);
   }
 }
+
+function queueType(job){
+  if(job.job_type === "/api/fx") return "Particle effect";
+  if(job.job_type === "/api/convert") return job.fx ? "FX conversion" : "Conversion";
+  if(job.job_type === "/api/render") return job.fx ? "FX mesh render" : "Sprite render";
+  return "Job";
+}
+function queueElement(tag, className, value){
+  const el = document.createElement(tag);
+  if(className) el.className = className;
+  if(value !== undefined) el.textContent = value;
+  return el;
+}
+function addQueueLink(parent, href, label){
+  if(!href) return;
+  const link = queueElement("a", "", label);
+  link.href = href;
+  link.target = "_blank";
+  if(label === "GLB" || label === "Frames ZIP") link.download = "";
+  parent.append(link);
+}
+function renderQueue(data){
+  const jobs = data.jobs || [];
+  const list = $("#queue-list");
+  list.replaceChildren();
+  const active = jobs.filter(j=>["running","cancelling","queued"].includes(j.status));
+  const history = jobs.filter(j=>["done","error","cancelled"].includes(j.status));
+  const visibleHistory = queueHistoryVisible ? history : history.slice(0,3);
+  const visible = [...active, ...visibleHistory];
+  const queued = data.counts?.queued || 0, running = data.counts?.running || 0;
+  $("#queue-summary").textContent = running || queued
+    ? `${running} running · ${queued} waiting`
+    : history.length ? "Idle · recent jobs below" : "Idle";
+  const historyButton = $("#queue-history");
+  historyButton.hidden = history.length <= 3;
+  historyButton.textContent = queueHistoryVisible ? "Hide history" : `Show history (${history.length})`;
+  $("#queue-empty").hidden = visible.length > 0;
+
+  visible.forEach(job=>{
+    const card = queueElement("article", "queue-job");
+    const top = queueElement("div", "queue-job-top");
+    const title = queueElement("div", "queue-job-title");
+    title.append(queueElement("strong", "", job.asset || "Job"));
+    title.append(queueElement("span", "pill", queueType(job)));
+    title.append(queueElement("span", `queue-state ${job.status}`, job.status));
+    top.append(title);
+    if(job.cancelable){
+      const cancel = queueElement("button", "queue-cancel",
+        job.status === "queued" ? "Cancel" : "Cancel job");
+      cancel.type = "button";
+      cancel.disabled = job.status === "cancelling";
+      cancel.addEventListener("click", async ()=>{
+        cancel.disabled = true;
+        try { await jpost("/api/job/cancel", {id:job.id}); }
+        catch(e) { $("#queue-summary").textContent = `Cancel failed: ${e.message}`; }
+        refreshJobs();
+      });
+      top.append(cancel);
+    }
+    card.append(top);
+
+    let meta = job.status === "queued"
+      ? `Queue position ${job.queue_position || "—"}`
+      : job.status === "running" ? "Running now"
+      : job.status === "cancelling" ? "Stopping process and cleaning partial output…"
+      : job.status === "done" ? "Completed"
+      : job.status === "cancelled" ? "Cancelled"
+      : `Failed · ${job.error || "unknown error"}`;
+    if(job.output_name){
+      meta += job.output_name === job.requested_output_name
+        ? ` · output ${job.output_name}`
+        : ` · output ${job.requested_output_name} → ${job.output_name}`;
+    }
+    card.append(queueElement("div", "queue-job-meta", meta));
+    const last = (job.log || []).filter(Boolean).slice(-1)[0];
+    if(last && !["queued", "started"].includes(last))
+      card.append(queueElement("div", "queue-job-log", last));
+
+    if(job.status === "done" && job.result){
+      const links = queueElement("div", "queue-links");
+      addQueueLink(links, job.result.glb, "GLB");
+      addQueueLink(links, job.result.coords, "Coords.json");
+      addQueueLink(links, job.result.archive, "Frames ZIP");
+      if(job.result.first_frame) addQueueLink(links, job.result.first_frame, "First frame");
+      if(job.result.frame_count) links.append(queueElement("span", "mut", `${job.result.frame_count} frames`));
+      if(links.childNodes.length) card.append(links);
+    }
+    list.append(card);
+  });
+}
+async function refreshJobs(){
+  try { renderQueue(await jget("/api/jobs")); }
+  catch(e) { $("#queue-summary").textContent = `Queue unavailable · ${e.message}`; }
+}
+$("#queue-refresh").onclick = refreshJobs;
+$("#queue-history").onclick = ()=>{ queueHistoryVisible=!queueHistoryVisible; refreshJobs(); };
+refreshJobs();
+setInterval(refreshJobs, 1000);
 
 async function loadList(){
   const d = await jget("/api/list?kind="+kind);
@@ -454,6 +599,7 @@ function collectHiddenObjects(){
 
 function busy(b){ document.querySelectorAll("#actions button").forEach(x=>x.disabled=b); }
 function sameSelection(s,k){ return sel===s && kind===k; }
+function jobFailure(e){ return e.message === "cancelled" ? "cancelled" : "error: "+e.message; }
 
 async function runConvert(){
   const s = sel, k = kind;
@@ -472,7 +618,7 @@ async function runConvert(){
       hide_objects: collectHiddenObjects()
     }, status);
     if(sameSelection(s,k)){ setStatus("converted ✓"); showLinks({glb:r.glb}); }
-  }catch(e){ if(sameSelection(s,k)) setStatus("error: "+e.message); }
+  }catch(e){ if(sameSelection(s,k)) setStatus(jobFailure(e)); }
   finally{ if(sameSelection(s,k)) busy(false); }
 }
 async function runRender(){
@@ -492,7 +638,7 @@ async function runRender(){
       setStatus(`rendered ${fr.length} frames ✓`);
       playFrames(fr); showLinks(r || {});
     }
-  }catch(e){ if(sameSelection(s,k)) setStatus("error: "+e.message); }
+  }catch(e){ if(sameSelection(s,k)) setStatus(jobFailure(e)); }
   finally{ if(sameSelection(s,k)) busy(false); }
 }
 async function runFx(){
@@ -510,7 +656,7 @@ async function runFx(){
       setStatus(`rendered ${fr.length} frames ✓${missing}`);
       playFrames(fr); showLinks({archive:r.archive});
     }
-  }catch(e){ if(sameSelection(s,k)) setStatus("error: "+e.message); }
+  }catch(e){ if(sameSelection(s,k)) setStatus(jobFailure(e)); }
   finally{ if(sameSelection(s,k)) busy(false); }
 }
 

@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import CancelledError
 import glob
 import json
 import os
@@ -197,37 +198,82 @@ def _matrix16(inst) -> list[float]:
     return [v for row in rows for v in row]
 
 
-def run_cmd(cmd: list[str], progress=None) -> None:
-    """Run a subprocess; if `progress` is given, stream stdout lines to it."""
-    if progress is None:
+def stop_process(process: subprocess.Popen, timeout: float = 2.0) -> None:
+    """Stop and reap a child process, escalating if it ignores termination."""
+    if process.poll() is not None:
+        return
+    try:
+        process.terminate()
+    except OSError:
+        pass
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+        except OSError:
+            pass
+        try:
+            process.wait()
+        except OSError:
+            pass
+    except OSError:
+        pass
+
+
+def run_cmd(cmd: list[str], progress=None, cancel_event=None,
+            process_callback=None) -> None:
+    """Run a subprocess, stream progress, and optionally support cancellation."""
+    if cancel_event is not None and cancel_event.is_set():
+        raise CancelledError("job cancelled")
+    if progress is None and cancel_event is None:
         subprocess.run(cmd, check=True)
         return
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                          text=True, bufsize=1)
-    for line in p.stdout:
-        line = line.strip()
-        if line:
-            progress(line)
-    if p.wait():
-        raise subprocess.CalledProcessError(p.returncode, cmd)
+    try:
+        if process_callback:
+            process_callback(p)
+        for line in p.stdout:
+            if cancel_event is not None and cancel_event.is_set():
+                stop_process(p)
+                raise CancelledError("job cancelled")
+            line = line.strip()
+            if line and progress:
+                progress(line)
+        return_code = p.wait()
+        if cancel_event is not None and cancel_event.is_set():
+            raise CancelledError("job cancelled")
+        if return_code:
+            raise subprocess.CalledProcessError(return_code, cmd)
+    finally:
+        if p.poll() is None:
+            stop_process(p)
+        if p.stdout:
+            p.stdout.close()
+        if process_callback:
+            process_callback(None)
 
 
 def run_blender(scene_json: str, out_glb: str, gltf: bool, obj: bool,
-                progress=None) -> None:
+                progress=None, cancel_event=None, process_callback=None) -> None:
     cmd = [config.BLENDER_EXE, "--background", "--python",
            config.BUILD_SCENE_SCRIPT, "--", scene_json, out_glb]
     if gltf:
         cmd.append("--gltf")
     if obj:
         cmd.append("--obj")
-    run_cmd(cmd, progress)
+    run_cmd(cmd, progress, cancel_event=cancel_event,
+            process_callback=process_callback)
 
 
 def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
             run: bool = True, fx: bool = False, textures: dict | None = None,
             clip: str | None = None, overlay: str | None = None,
             output_name: str | None = None, hide_objects: list[str] | None = None,
-            progress=None) -> str:
+            progress=None, cancel_event=None, process_callback=None) -> str:
+    if cancel_event is not None and cancel_event.is_set():
+        raise CancelledError("job cancelled")
     export_name = config.safe_output_name(output_name, mesh_name)
     meshes_dir = config.FX_DIR if fx else config.MESHES_DIR
     textures_dir = config.FX_DIR if fx else config.TEXTURES_DIR
@@ -240,7 +286,8 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
                                   output_name=export_name, hide_objects=hide_objects)
     out_glb = os.path.join(model, f"{export_name}.glb")
     if run:
-        run_blender(scene_json, out_glb, gltf, obj, progress=progress)
+        run_blender(scene_json, out_glb, gltf, obj, progress=progress,
+                    cancel_event=cancel_event, process_callback=process_callback)
         with open(os.path.join(work, f"{export_name}_build.json"), "w",
                   encoding="utf-8") as f:
             json.dump({"version": config.MODEL_BUILD_VERSION,

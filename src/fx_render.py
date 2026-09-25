@@ -137,9 +137,11 @@ def _write_frames_archive(paths: list[str], sprites_dir: str,
 
 def render(name: str, frames: int, resolution: int, margin: float,
            output_name: str | None = None,
-           warnings: list[str] | None = None) -> str:
+           warnings: list[str] | None = None, cancel_check=None) -> str:
     name = _archive_name(name)
     validate_options(frames, resolution, margin)
+    if cancel_check:
+        cancel_check()
     effect = awp_mod.load(ensure_awp(name))
     export_name = config.safe_output_name(output_name, name)
     effect.name = export_name   # name frames after the requested export, not the .awp
@@ -147,7 +149,10 @@ def render(name: str, frames: int, resolution: int, margin: float,
     paths = fx_render.render_effect(effect, out_dir, config.FX_DIR,
                                     config.TEXTURES_DIR, frames=frames,
                                     resolution=resolution, margin=margin,
-                                    warnings=warnings)
+                                    warnings=warnings,
+                                    cancel_check=cancel_check)
+    if cancel_check:
+        cancel_check()
     archive = _write_frames_archive(paths, out_dir, export_name)
     label = name if export_name == name else f"{name} as {export_name}"
     print(f"  {label}: {len(effect.layers)} layers, {len(paths)} frames -> {out_dir}")

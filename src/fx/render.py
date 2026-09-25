@@ -155,7 +155,7 @@ def _sample_curve(points, life):
     return points[-1][1]
 
 
-def _build_particles(layer: awp.Layer, seed: int) -> list[Particle]:
+def _build_particles(layer: awp.Layer, seed: int, cancel_check=None) -> list[Particle]:
     rng = random.Random(seed)
     time_d = layer.nodes.get(T_TIME, {})
     scale_node = layer.nodes.get(T_SCALE)
@@ -172,7 +172,9 @@ def _build_particles(layer: awp.Layer, seed: int) -> list[Particle]:
     bezier_node = layer.nodes.get(T_BEZIER)
 
     out = []
-    for _ in range(max(1, layer.num)):
+    for particle_index in range(max(1, layer.num)):
+        if cancel_check and particle_index % 64 == 0:
+            cancel_check()
         smin, smax, scale_cycle, scale_phase = _scale_params(scale_node, rng)
         segmented_scale = _sample_segmented_scale(segmented_scale_node, rng)
         rotation_data = rot.get("rotation", {}).get("data", {})
@@ -486,7 +488,7 @@ def _composite(canvas, sprite_rgba, cx, cy, additive):
 
 def render_effect(effect: awp.Effect, out_dir: str, fx_dir: str, textures_dir: str,
                   frames: int = 30, resolution: int = 256, margin: float = 1.2,
-                  warnings: list[str] | None = None):
+                  warnings: list[str] | None = None, cancel_check=None):
     if not isinstance(frames, int) or not 1 <= frames <= 600:
         raise ValueError("frames must be between 1 and 600")
     if not isinstance(resolution, int) or not 16 <= resolution <= 2048:
@@ -498,15 +500,21 @@ def render_effect(effect: awp.Effect, out_dir: str, fx_dir: str, textures_dir: s
     for old in glob.glob(os.path.join(out_dir, f"{effect.name}_*.png")):
         os.remove(old)  # clear stale frames so the set matches this run
     tex = TextureCache(fx_dir, textures_dir)
-    sim = [(layer, _build_particles(layer, i), _layer_transform(layer),
-            _sheet(layer)) for i, layer in enumerate(effect.layers)]
+    sim = []
+    for i, layer in enumerate(effect.layers):
+        if cancel_check:
+            cancel_check()
+        sim.append((layer, _build_particles(layer, i, cancel_check), _layer_transform(layer),
+                    _sheet(layer)))
 
     times = [effect.duration * f / max(1, frames - 1) for f in range(frames)]
 
     # pre-pass: world extent (positions +- half quad) to fit the canvas
     ext = 1.0
     for layer, parts, inst, _sh in sim:
-        for p in parts:
+        for pi, p in enumerate(parts):
+            if cancel_check and pi % 32 == 0:
+                cancel_check()
             for t in times:
                 st = _state(p, layer, inst, t)
                 if not st:
@@ -519,11 +527,17 @@ def render_effect(effect: awp.Effect, out_dir: str, fx_dir: str, textures_dir: s
 
     written = []
     for fi, t in enumerate(times):
+        if cancel_check:
+            cancel_check()
         canvas = np.zeros((resolution, resolution, 4), np.float32)
         for layer, parts, inst, sheet in sim:
+            if cancel_check:
+                cancel_check()
             base = tex.get(layer.texture_url)
             additive = layer.blend_mode == "add"
-            for p in parts:
+            for pi, p in enumerate(parts):
+                if cancel_check and pi % 32 == 0:
+                    cancel_check()
                 st = _state(p, layer, inst, t)
                 if not st:
                     continue
