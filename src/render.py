@@ -8,6 +8,7 @@ Usage:
     python -m src.render sibelon
     python -m src.render sibelon --frames 36 --resolution 512
     python -m src.render sibelon --camera-model orbit --light-model blender --hdri city.exr
+    python -m src.render sibelon --queue --follow
     python -m src.render --all
 """
 from __future__ import annotations
@@ -351,34 +352,8 @@ def overrides_from_args(args) -> dict:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Turntable sprite renderer")
-    ap.add_argument("mesh", nargs="?")
-    ap.add_argument("--all", action="store_true")
-    ap.add_argument("--fx", action="store_true",
-                    help="render fx_*.awd meshes from fx/ (output under out/fx/)")
-    ap.add_argument("--overlay", help="mesh name to overlay/render on top")
-    ap.add_argument("--output-name", "--export-name", dest="output_name",
-                    help="basename for exported glb/sprite files (default: mesh name)")
-    add_render_args(ap)
-    args = ap.parse_args()
-
-    ov = overrides_from_args(args)
-    src_dir = config.FX_DIR if args.fx else config.MESHES_DIR
-    if args.all:
-        names = [os.path.splitext(os.path.basename(p))[0]
-                 for p in sorted(glob.glob(os.path.join(src_dir, "*.awd")))]
-    elif args.mesh:
-        names = [args.mesh]
-    else:
-        ap.error("give a mesh name or --all")
-    if args.all and args.output_name:
-        ap.error("--output-name is only valid for a single mesh")
-
-    for name in names:
-        print(f"=== render {name} ===")
-        out = render(name, ov, fx=args.fx, clip=args.clip or None,
-                     overlay=args.overlay, output_name=args.output_name)
-        print(f"  -> {out}")
+    from src.cli import main as cli_main
+    cli_main(["render", *sys.argv[1:]])
 
 
 if __name__ == "__main__":

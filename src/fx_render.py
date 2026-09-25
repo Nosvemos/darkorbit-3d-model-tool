@@ -3,6 +3,7 @@
 Usage:
     python -m src.fx_render explosion0
     python -m src.fx_render explosion0 --frames 24 --resolution 256
+    python -m src.fx_render explosion0 --queue
     python -m src.fx_render --all
 
 Outputs are isolated under out/fx/effects/<name>/sprites/.
@@ -161,44 +162,8 @@ def render(name: str, frames: int, resolution: int, margin: float,
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Render .awp particle effect to sprites")
-    ap.add_argument("name", nargs="?", help="effect name (without .zip/.awp)")
-    ap.add_argument("--all", action="store_true", help="render every fx/*.zip")
-    ap.add_argument("--frames", type=int, default=30)
-    ap.add_argument("--resolution", type=int, default=256)
-    ap.add_argument("--margin", type=float, default=1.2, help="canvas padding factor")
-    ap.add_argument("--output-name", "--export-name", dest="output_name",
-                    help="basename for exported sprite files (default: effect name)")
-    args = ap.parse_args()
-
-    if args.all:
-        names = [os.path.splitext(os.path.basename(p))[0]
-                 for p in sorted(glob.glob(os.path.join(config.FX_DIR, "*.zip")))]
-    elif args.name:
-        names = [args.name]
-    else:
-        ap.error("give an effect name or --all")
-    if args.all and args.output_name:
-        ap.error("--output-name is only valid for a single effect")
-    try:
-        validate_options(args.frames, args.resolution, args.margin)
-    except ValueError as e:
-        ap.error(str(e))
-
-    for name in names:
-        print(f"=== fx {name} ===")
-        warnings = []
-        try:
-            render(name, args.frames, args.resolution, args.margin,
-                   output_name=args.output_name, warnings=warnings)
-        except SystemExit as e:
-            print(f"  skip: {e}")
-            continue
-        except ValueError as e:
-            print(f"  skip: {e}")
-            continue
-        if warnings:
-            print(f"  missing textures (white fallback): {', '.join(warnings)}")
+    from src.cli import main as cli_main
+    cli_main(["fx", *sys.argv[1:]])
 
 
 if __name__ == "__main__":

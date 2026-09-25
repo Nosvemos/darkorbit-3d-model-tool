@@ -14,6 +14,8 @@ src/
   blender/
     build_scene.py    # (blender --background --python) import + material wire + empties + export
   pipeline.py         # CLI orchestrator: meshes/ loop
+  cli.py              # unified command-line interface and queue controls
+  queue_client.py     # stdlib HTTP client for the standalone CLI queue
   config.py           # paths, blender exe, output format selection
   render.py             # turntable sprite render orchestrator (Phase 5)
   fx_render.py        # AWP ZIP selection, isolated extraction, effect frame export
@@ -31,6 +33,15 @@ out/
     <fx-mesh>/         # FX AWD model and turntable output
     effects/<name>/    # AWP PNG frames and downloadable frame ZIP
 ```
+
+The web UI and CLI each run an independent in-memory FIFO worker. The web queue
+lives in the UI process; `do3d queue serve` starts a headless CLI queue process
+on port 8766. The unified CLI submits conversion, mesh-render, and particle-effect
+jobs to its own queue with `--queue`, then lists, pauses, resumes, watches, or
+cancels them through `queue_client.py`. Both queues use the same job runner and
+cancellation cleanup, but neither sees or controls the other's jobs. Direct CLI
+commands remain synchronous when `--queue` is omitted. Queue state lasts only
+for the lifetime of each service process.
 
 ## FX mesh and particle effect paths
 

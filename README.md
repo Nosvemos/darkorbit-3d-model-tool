@@ -57,6 +57,8 @@ do3d convert sibelon --output-name boss_ship
 do3d render sibelon --frames 32      # turntable sprite sequence + Coords.json
 do3d fx explosion0                   # particle effect -> sprite frames
 do3d ui                              # local web UI
+do3d render goliath --queue --frames 32   # add to the standalone CLI queue
+do3d queue list                      # inspect CLI jobs (queue serve must run)
 ```
 
 Every command is also available as `python -m src <command>`, and the individual
@@ -73,6 +75,7 @@ same options as their subcommand.
 | `list`        | List meshes / fx meshes / effects / textures         |
 | `info`        | Inspect a mesh (objects, points, clips, textures)    |
 | `extract-awp` | Unpack `fx/*.zip` into archive-isolated `fx/awp/by_archive/` |
+| `queue`       | Start and manage the standalone CLI queue                |
 | `ui`          | Launch the local web UI                              |
 
 A mesh name (without extension) is the positional argument for `convert`,
@@ -88,7 +91,12 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--obj`        | Also export `.obj` (+ `.mtl`) into `model/obj/`.                  |
 | `--no-blender` | Decode textures and emit the scene JSON only; skip Blender.       |
 | `--overlay NAME`| Overlay another mesh (AWD) on top of the main model.              |
+| `--clip NAME` | Include only one animation clip in the model.                     |
+| `--texture CHANNEL=NAME` | Override an ATF texture channel; repeat for more channels. |
 | `--output-name NAME` | Use a custom basename for exported files. Alias: `--export-name`. |
+| `--queue`      | Submit this conversion to the standalone CLI queue.                |
+| `--follow`     | With `--queue`, stream status until this job finishes.              |
+| `--queue-server URL` | Select the CLI queue service (or set `DO3D_QUEUE_URL`).      |
 
 ### `render`
 
@@ -157,6 +165,7 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--world-color HEX`  | `#ff855c`     | DarkOrbit map/world color from `maps-config.xml`. |
 | `--ambient-color HEX` | `#aed3ff` (`darkorbit`) | Material fill color; tuned to preserve the source diffuse palette. |
 | `--overlay NAME`     | —             | Overlay another mesh (AWD) on top of the main model. |
+| `--texture CHANNEL=NAME` | —          | Override an ATF channel; repeat for more than one. |
 
 Bundled HDRIs: `studio` · `city` · `courtyard` · `forest` · `interior` · `night`
 · `sunrise` · `sunset`. Select one with `--hdri <name>.exr` or use `--use-hdri`
@@ -174,6 +183,30 @@ All defaults live in `RENDER_DEFAULTS`
 | `--resolution PX` | 256     | Square sprite resolution (16–2048 px).   |
 | `--margin F`      | 1.2     | Canvas padding factor (0.05–10).         |
 | `--output-name NAME` | effect name | Custom basename for sprite frames.   |
+
+`convert`, `render`, and `fx` also accept `--queue` to submit work to the
+standalone CLI queue. Add `--follow` to stay attached to that job. Without
+`--queue`, these commands keep their direct, synchronous CLI behavior.
+
+```bash
+do3d queue serve                  # run this in a separate terminal
+do3d render goliath --queue --frames 32
+do3d convert goliath --queue --follow
+do3d fx explosion0 --queue
+do3d queue list
+do3d queue pause
+do3d queue resume
+do3d queue watch 12
+do3d queue cancel 12
+```
+
+Start `do3d queue serve` in its own terminal before submitting CLI jobs. The
+standalone CLI queue defaults to `http://127.0.0.1:8766`; set `DO3D_QUEUE_URL` or
+pass `--queue-server URL` to use another instance. Its jobs, pause state, and
+history are independent from the web UI queue on port 8765. Each queue still
+serializes its own work and uses the same cancellation cleanup and output-name
+collision protection. Queue state lives in its service process; stopping that
+process ends that queue session.
 
 ## Output structure
 
@@ -216,8 +249,11 @@ when auto-detection misses, an export-name field controls output basenames, and
 an animation-clip selector picks which clip to play. Every action maps to the
 same functions as the CLI.
 
-The queue panel shows the active job, waiting jobs, and recent results. Jobs run
-one at a time; you can keep browsing and enqueue more work while one is running,
+The queue panel shows the active job, waiting jobs, and recent results. The
+unified CLI (`do3d` or `python -m src`) has the same queue controls, but runs an
+independent queue service (`do3d queue serve`) so web and CLI jobs stay separate.
+Jobs run
+one at a time per queue; you can keep browsing and enqueue more work while one is running,
 pause the queue after the current job, resume it, cancel a waiting job, or stop
 the active render. Stopping a job terminates its Blender process and removes
 that job's partial output. Existing output folders are preserved: if an export

@@ -9,11 +9,13 @@ browser can preview sprite turntables and download the glb.
 from __future__ import annotations
 
 import glob
+import hashlib
 import json
 import os
 import queue
 import re
 import shutil
+import tempfile
 import threading
 import time
 import webbrowser
@@ -24,6 +26,11 @@ from urllib.parse import parse_qs, urlparse
 from src import config, fx_render, pipeline
 from src import render as render_mod
 from src.awd import parse_file
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 WEB_DIR = os.path.join(config.ROOT, "web")
 _NUM = re.compile(r"(\d+)")
@@ -97,7 +104,7 @@ def api_convert(body, progress=None, control=None):
     name = body["name"]
     fx = bool(body.get("fx"))
     glb = pipeline.convert(name, gltf=bool(body.get("gltf")),
-                           obj=bool(body.get("obj")), fx=fx,
+                           obj=bool(body.get("obj")), run=bool(body.get("run", True)), fx=fx,
                            textures=body.get("textures") or None,
                            clip=body.get("clip") or None,
                            overlay=body.get("overlay") or None,
@@ -106,7 +113,11 @@ def api_convert(body, progress=None, control=None):
                            progress=progress,
                            cancel_event=control.cancel_event if control else None,
                            process_callback=control.set_process if control else None)
-    return {"ok": True, "glb": _rel_url(glb)}
+    scene = os.path.join(config.work_dir(export_name, _mesh_output_base(fx)),
+                         f"{export_name}.scene.json")
+    return {"ok": True,
+            "glb": _rel_url(glb) if os.path.exists(glb) else None,
+            "scene": _rel_url(scene) if os.path.exists(scene) else None}
 
 
 def api_render(body, progress=None, control=None):
@@ -169,6 +180,36 @@ _WORKER_STARTED = [False]
 _RESERVED_OUTPUTS: dict[str, str] = {}
 
 
+def _try_output_lock(key: str):
+    """Reserve an output basename across independent web and CLI workers."""
+    lock_dir = os.path.join(tempfile.gettempdir(), "darkorbit-3d-tool-queue-locks")
+    os.makedirs(lock_dir, exist_ok=True)
+    lock_name = hashlib.sha256(key.encode("utf-8")).hexdigest() + ".lock"
+    handle = open(os.path.join(lock_dir, lock_name), "a+b")
+    try:
+        if os.fstat(handle.fileno()).st_size == 0:
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        if os.name == "nt":
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError:
+                handle.close()
+                return None
+        else:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                handle.close()
+                return None
+        return handle
+    except BaseException:
+        if not handle.closed:
+            handle.close()
+        raise
+
+
 class JobControl:
     """Progress and cancellation hooks shared by one queued operation."""
 
@@ -224,7 +265,7 @@ def _effect_output_conflict(sprites_dir: str, export_name: str) -> bool:
         os.path.exists(os.path.join(sprites_dir, archive))
 
 
-def _reserve_output_locked(jid: str, endpoint: str, body: dict) -> tuple[str, str, dict]:
+def _reserve_output_locked(jid: str, endpoint: str, body: dict) -> tuple[str, str, dict, object]:
     asset = str(body.get("name") or "asset")
     requested = config.safe_output_name(body.get("output_name"), asset)
     is_effect = endpoint == "/api/fx"
@@ -248,7 +289,17 @@ def _reserve_output_locked(jid: str, endpoint: str, body: dict) -> tuple[str, st
         else:
             conflict = os.path.exists(config.mesh_dir(export_name, base))
         if key not in _RESERVED_OUTPUTS and not conflict:
-            break
+            reservation_handle = _try_output_lock(key)
+            if reservation_handle is not None:
+                # Recheck after taking the cross-process lock; another worker may
+                # have completed between the first filesystem check and lock.
+                if is_effect:
+                    conflict = _effect_output_conflict(sprites_dir, export_name)
+                else:
+                    conflict = os.path.exists(config.mesh_dir(export_name, base))
+                if not conflict:
+                    break
+                reservation_handle.close()
         suffix += 1
         tail = f"__job{jid}" if suffix == 1 else f"__job{jid}_{suffix}"
         export_name = config.safe_output_name(f"{requested}{tail}", asset)
@@ -259,7 +310,7 @@ def _reserve_output_locked(jid: str, endpoint: str, body: dict) -> tuple[str, st
                 "export_name": export_name} if is_effect else
                {"kind": "tree", "base": base,
                 "path": config.mesh_dir(export_name, base)})
-    return export_name, key, cleanup
+    return export_name, key, cleanup, reservation_handle
 
 
 def _cleanup_job_outputs(job: dict) -> int:
@@ -306,6 +357,12 @@ def _release_reservation_locked(job: dict):
     key = job.get("reservation_key")
     if key and _RESERVED_OUTPUTS.get(key) == job.get("id"):
         _RESERVED_OUTPUTS.pop(key, None)
+    handle = job.pop("reservation_handle", None)
+    if handle is not None:
+        try:
+            handle.close()
+        except OSError:
+            pass
 
 
 def _job_worker():
@@ -388,7 +445,8 @@ def _start_job(fn, endpoint=None, body=None):
         jid = str(_SEQ[0])
         job = {"id": jid, "status": "queued", "log": ["queued"],
                "result": None, "error": None, "cancel_event": threading.Event(),
-               "process": None, "created_at": time.time(), "started_at": None,
+               "process": None, "reservation_handle": None,
+               "created_at": time.time(), "started_at": None,
                "finished_at": None, "cleanup": None, "reservation_key": None,
                "job_type": endpoint or "job", "asset": "", "output_name": ""}
         if endpoint and body is not None:
@@ -396,10 +454,12 @@ def _start_job(fn, endpoint=None, body=None):
             job["fx"] = bool(body.get("fx"))
             job["requested_output_name"] = config.safe_output_name(
                 body.get("output_name"), job["asset"])
-            output_name, reservation_key, cleanup = _reserve_output_locked(jid, endpoint, body)
+            output_name, reservation_key, cleanup, reservation_handle = \
+                _reserve_output_locked(jid, endpoint, body)
             job["output_name"] = output_name
             job["reservation_key"] = reservation_key
             job["cleanup"] = cleanup
+            job["reservation_handle"] = reservation_handle
         _JOBS[jid] = job
         _QUEUE.put((jid, fn))
         _QUEUE_WAKE.set()
@@ -427,7 +487,8 @@ def api_job(q):
         if not job:
             return {"status": "unknown"}
         result = {key: value for key, value in job.items()
-                  if key not in {"cancel_event", "process", "cleanup", "reservation_key"}}
+                  if key not in {"cancel_event", "process", "cleanup", "reservation_key",
+                                 "reservation_handle"}}
         result["log"] = job["log"][-8:]
         result["cancelable"] = job["status"] in {"queued", "running"}
     result["queue_position"] = _queue_position(jid)
@@ -569,6 +630,36 @@ class Handler(BaseHTTPRequestHandler):
                                                  "application/octet-stream")
         with open(abs_path, "rb") as f:
             self._send(200, f.read(), ctype)
+
+
+class QueueHandler(Handler):
+    """Queue-only HTTP surface for the standalone CLI worker process."""
+
+    def do_GET(self):
+        path = urlparse(self.path).path
+        if path not in {"/api/job", "/api/jobs"} and not path.startswith("/out/"):
+            return self._send(404, {"error": "not found"})
+        return super().do_GET()
+
+    def do_POST(self):
+        if urlparse(self.path).path not in {
+                "/api/queue/control", "/api/job/cancel", "/api/convert",
+                "/api/render", "/api/fx"}:
+            return self._send(404, {"error": "not found"})
+        return super().do_POST()
+
+
+def serve_queue(host="127.0.0.1", port=8766):
+    """Run a headless queue instance for CLI jobs, separate from the web UI."""
+    httpd = ThreadingHTTPServer((host, port), QueueHandler)
+    url = f"http://{host}:{port}"
+    print(f"DarkOrbit 3D CLI queue -> {url}  (Ctrl+C to stop)")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\nCLI queue stopped")
+    finally:
+        httpd.server_close()
 
 
 def serve(host="127.0.0.1", port=8765, open_browser=True):

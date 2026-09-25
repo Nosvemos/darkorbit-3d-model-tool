@@ -7,6 +7,7 @@ Usage:
     python -m src.pipeline cubikon              # one mesh
     python -m src.pipeline --all                # every mesh in meshes/
     python -m src.pipeline cubikon --gltf --obj # extra formats
+    python -m src.pipeline cubikon --queue      # enqueue on the web UI worker
 """
 from __future__ import annotations
 
@@ -296,37 +297,8 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
 
 
 def main():
-    ap = argparse.ArgumentParser(description="DarkOrbit AWD/ATF -> glb pipeline")
-    ap.add_argument("mesh", nargs="?", help="mesh name (without .awd)")
-    ap.add_argument("--all", action="store_true", help="convert every mesh")
-    ap.add_argument("--fx", action="store_true",
-                    help="read fx_*.awd + textures from fx/ and output under out/fx/")
-    ap.add_argument("--gltf", action="store_true", help="also export .gltf")
-    ap.add_argument("--obj", action="store_true", help="also export .obj")
-    ap.add_argument("--no-blender", action="store_true",
-                    help="only emit scene JSON + textures, skip Blender")
-    ap.add_argument("--overlay", help="mesh name to overlay/render on top")
-    ap.add_argument("--output-name", "--export-name", dest="output_name",
-                    help="basename for exported files (default: mesh name)")
-    args = ap.parse_args()
-
-    src_dir = config.FX_DIR if args.fx else config.MESHES_DIR
-    if args.all:
-        names = [os.path.splitext(os.path.basename(p))[0]
-                 for p in sorted(glob.glob(os.path.join(src_dir, "*.awd")))]
-    elif args.mesh:
-        names = [args.mesh]
-    else:
-        ap.error("give a mesh name or --all")
-    if args.all and args.output_name:
-        ap.error("--output-name is only valid for a single mesh")
-
-    for name in names:
-        print(f"=== {name} ===")
-        out = convert(name, gltf=args.gltf, obj=args.obj,
-                      run=not args.no_blender, fx=args.fx, overlay=args.overlay,
-                      output_name=args.output_name)
-        print(f"  -> {out}")
+    from src.cli import main as cli_main
+    cli_main(["convert", *sys.argv[1:]])
 
 
 if __name__ == "__main__":
