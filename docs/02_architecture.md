@@ -25,9 +25,9 @@ src/
 web/
   index.html          # local UI for meshes, FX meshes, and particle effects
 out/
-  <mesh>/
-    model/   <mesh>.glb (+textures/, gltf/, obj/)
-    sprites/ <mesh>_1.png ... + <mesh>_Coords.json   # engine_/laserpoint_ coordinates
+  <export-name>/  # defaults to the source mesh name
+    model/   <export-name>.glb (+textures/, gltf/, obj/)
+    sprites/ <export-name>_1.png ... + <export-name>_Coords.json   # engine_/laserpoint_ coordinates
     work/    intermediate files (scene/cfg/meta json)
   fx/
     <fx-mesh>/         # FX AWD model and turntable output
@@ -42,6 +42,13 @@ cancels them through `queue_client.py`. Both queues use the same job runner and
 cancellation cleanup, but neither sees or controls the other's jobs. Direct CLI
 commands remain synchronous when `--queue` is omitted. Queue state lasts only
 for the lifetime of each service process.
+
+Mesh build stamps record the source mesh, the options that affect the GLB, and
+the selected source/texture file states. Reusing an export name for another
+asset or changing its input files therefore rebuilds the model instead of
+rendering a stale GLB from the previous asset.
+The GLB scene and top-level collection use the export name; mesh and point node
+names retain their source AWD labels for coordinate and object references.
 
 ## FX mesh and particle effect paths
 

@@ -48,6 +48,34 @@ def _resolve_atf(spec: str, dirs: list[str]) -> str | None:
     return None
 
 
+def _input_file_state(path: str | None) -> dict | None:
+    if not path:
+        return None
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return {"path": os.path.normcase(os.path.abspath(path)),
+            "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+
+
+def _texture_input_states(mesh_name: str, textures_dir: str,
+                          overrides: dict | None = None) -> dict:
+    overrides = overrides or {}
+    search = [textures_dir, config.TEXTURES_DIR, config.FX_DIR]
+    found = {}
+    for channel in config.CHANNELS:
+        atf = _resolve_atf(overrides[channel], search) if overrides.get(channel) \
+            else _find_texture(textures_dir, mesh_name, channel)
+        if atf:
+            found[channel] = _input_file_state(atf)
+    if not found and not overrides:
+        single = os.path.join(textures_dir, f"{mesh_name}.atf")
+        if os.path.exists(single):
+            found["diffuse"] = _input_file_state(single)
+    return found
+
+
 def _pack_away3d_specular(specular_png: str) -> str:
     """Pack Away3D R strength and G gloss into glTF-compatible channels.
 
@@ -199,6 +227,36 @@ def _matrix16(inst) -> list[float]:
     return [v for row in rows for v in row]
 
 
+def build_inputs(mesh_name: str, fx: bool = False, textures: dict | None = None,
+                 clip: str | None = None, overlay: str | None = None,
+                 hide_objects: list[str] | None = None,
+                 output_name: str | None = None) -> dict:
+    """Return the normalized inputs that determine a generated GLB."""
+    export_name = config.safe_output_name(output_name, mesh_name)
+    meshes_dir = config.FX_DIR if fx else config.MESHES_DIR
+    textures_dir = config.FX_DIR if fx else config.TEXTURES_DIR
+    overlay_files = None
+    if overlay:
+        overlay_files = {
+            "awd": _input_file_state(os.path.join(meshes_dir, f"{overlay}.awd")),
+            "textures": _texture_input_states(overlay, textures_dir),
+        }
+    return {
+        "source": mesh_name,
+        "export_name": export_name,
+        "fx": bool(fx),
+        "textures": dict(textures or {}),
+        "clip": clip or None,
+        "overlay": overlay or None,
+        "hide_objects": list(hide_objects or []),
+        "input_files": {
+            "awd": _input_file_state(os.path.join(meshes_dir, f"{mesh_name}.awd")),
+            "textures": _texture_input_states(mesh_name, textures_dir, textures),
+            "overlay": overlay_files,
+        },
+    }
+
+
 def stop_process(process: subprocess.Popen, timeout: float = 2.0) -> None:
     """Stop and reap a child process, escalating if it ignores termination."""
     if process.poll() is not None:
@@ -292,7 +350,10 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
         with open(os.path.join(work, f"{export_name}_build.json"), "w",
                   encoding="utf-8") as f:
             json.dump({"version": config.MODEL_BUILD_VERSION,
-                       "source": mesh_name}, f)
+                       **build_inputs(mesh_name, fx=fx, textures=textures,
+                                      clip=clip, overlay=overlay,
+                                      hide_objects=hide_objects,
+                                      output_name=export_name)}, f)
     return out_glb
 
 

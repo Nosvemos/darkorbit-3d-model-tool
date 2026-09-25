@@ -27,7 +27,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import config
-from src.pipeline import convert, run_cmd
+from src.pipeline import build_inputs, convert, run_cmd
 
 
 def _clamp(v, lo, hi):
@@ -107,14 +107,23 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
                                f"{export_name}_build.json")
     try:
         with open(build_stamp, encoding="utf-8") as f:
-            built_version = json.load(f).get("version")
+            built = json.load(f)
     except (OSError, ValueError, TypeError):
-        built_version = None
+        built = {}
+    if not isinstance(built, dict):
+        built = {}
     hide_objs = overrides.get("hide_objects")
+    expected_build = build_inputs(
+        mesh_name, fx=fx, textures=textures, clip=clip, overlay=overlay,
+        hide_objects=hide_objs, output_name=export_name)
+    build_matches = (built.get("version") == config.MODEL_BUILD_VERSION and
+                     all(built.get(key) == value
+                         for key, value in expected_build.items()))
     # Rebuild missing/stale GLBs as well as explicit per-run source overrides.
-    # The version stamp ensures renderer/material fixes reach existing outputs.
+    # Compare provenance too: one export name can be reused for different
+    # source meshes or build options, and must not keep the previous model.
     if (textures or clip or overlay or hide_objs or not os.path.exists(glb) or
-            built_version != config.MODEL_BUILD_VERSION):
+            not build_matches):
         if progress:
             progress("building glb…")
         convert(mesh_name, fx=fx, textures=textures, clip=clip, overlay=overlay,

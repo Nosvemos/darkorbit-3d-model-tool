@@ -93,7 +93,7 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--overlay NAME`| Overlay another mesh (AWD) on top of the main model.              |
 | `--clip NAME` | Include only one animation clip in the model.                     |
 | `--texture CHANNEL=NAME` | Override an ATF texture channel; repeat for more channels. |
-| `--output-name NAME` | Use a custom basename for exported files. Alias: `--export-name`. |
+| `--output-name NAME` | Use a custom basename for exported files (a recognized file extension is stripped). Alias: `--export-name`. |
 | `--queue`      | Submit this conversion to the standalone CLI queue.                |
 | `--follow`     | With `--queue`, stream status until this job finishes.              |
 | `--queue-server URL` | Select the CLI queue service (or set `DO3D_QUEUE_URL`).      |

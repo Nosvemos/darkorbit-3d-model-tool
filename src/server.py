@@ -103,12 +103,13 @@ def api_textures(q):
 def api_convert(body, progress=None, control=None):
     name = body["name"]
     fx = bool(body.get("fx"))
+    export_name = config.safe_output_name(body.get("output_name"), name)
     glb = pipeline.convert(name, gltf=bool(body.get("gltf")),
                            obj=bool(body.get("obj")), run=bool(body.get("run", True)), fx=fx,
                            textures=body.get("textures") or None,
                            clip=body.get("clip") or None,
                            overlay=body.get("overlay") or None,
-                           output_name=body.get("output_name") or None,
+                           output_name=export_name,
                            hide_objects=body.get("hide_objects") or None,
                            progress=progress,
                            cancel_event=control.cancel_event if control else None,

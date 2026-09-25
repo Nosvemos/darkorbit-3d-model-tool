@@ -18,10 +18,16 @@ def safe_output_name(name: str | None, fallback: str) -> str:
     """
     raw = str(name or "").strip() or fallback
     raw = raw.replace("\\", "/").rsplit("/", 1)[-1]
-    for ext in (".glb", ".gltf", ".obj", ".png", ".json", ".zip"):
-        if raw.lower().endswith(ext):
-            raw = raw[:-len(ext)]
+    # Accept either a stem or a source/output filename. Repeatedly remove
+    # known suffixes so inputs such as ``ship.awd.glb`` still resolve to the
+    # same export stem as ``ship``.
+    extensions = (".glb", ".gltf", ".obj", ".png", ".json", ".zip",
+                  ".awd", ".atf", ".awp")
+    while True:
+        matched = next((ext for ext in extensions if raw.lower().endswith(ext)), None)
+        if not matched:
             break
+        raw = raw[:-len(matched)]
     allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
     cleaned = "".join(ch if ch in allowed else "_" for ch in raw).strip("._-")
     return cleaned or fallback
@@ -65,7 +71,7 @@ BLENDER_EXE = os.environ.get(
 
 BUILD_SCENE_SCRIPT = os.path.join(ROOT, "src", "blender", "build_scene.py")
 RENDER_SCRIPT = os.path.join(ROOT, "src", "blender", "render_sprites.py")
-MODEL_BUILD_VERSION = 3  # bump when the generated GLB scene/material contract changes
+MODEL_BUILD_VERSION = 4  # bump when the generated GLB scene/material contract changes
 
 # Named visual profiles applied before per-run overrides. The DarkOrbit map
 # lighting values follow the default 3D map entries in the reference

@@ -308,6 +308,9 @@ def main():
         scene = json.load(f)
 
     reset_scene()
+    export_name = scene.get("name") or os.path.splitext(os.path.basename(out_glb))[0]
+    bpy.context.scene.name = export_name
+    bpy.context.scene.collection.name = export_name
 
     meshes, points = [], []
     for obj in scene["objects"]:
