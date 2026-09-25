@@ -262,9 +262,11 @@ Jobs run
 one at a time per queue; you can keep browsing and enqueue more work while one is running,
 pause the queue after the current job, resume it, cancel a waiting job, or stop
 the active render. Stopping a job terminates its Blender process and removes
-that job's partial output. Existing output folders are preserved: if an export
-name is already present or reserved, the UI assigns
-a unique `__job<N>` suffix and shows the final name in the queue.
+that job's partial output. Exports keep the requested basename even when that
+name already exists. The previous export is restored if a replacement fails or
+is cancelled; scene-only conversion (`--no-blender`) keeps the existing export
+folder in place. A matching export currently active in the other queue is
+reported as a conflict instead of being renamed.
 Use **Clear history** to remove finished job entries while keeping their output
 files and any active or waiting jobs.
 

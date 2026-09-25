@@ -178,7 +178,7 @@ _QUEUE = queue.Queue()
 _QUEUE_WAKE = threading.Event()
 _QUEUE_PAUSED = [False]
 _WORKER_STARTED = [False]
-_RESERVED_OUTPUTS: dict[str, str] = {}
+_RESERVED_OUTPUTS: dict[str, dict] = {}
 
 
 def _try_output_lock(key: str):
@@ -257,16 +257,7 @@ def _mesh_output_base(fx: bool) -> str:
     return config.FX_OUT if fx else config.OUT_DIR
 
 
-def _effect_output_conflict(sprites_dir: str, export_name: str) -> bool:
-    if not os.path.isdir(sprites_dir):
-        return False
-    prefix = f"{export_name}_"
-    archive = f"{export_name}_frames.zip"
-    return any(name.startswith(prefix) for name in os.listdir(sprites_dir)) or \
-        os.path.exists(os.path.join(sprites_dir, archive))
-
-
-def _reserve_output_locked(jid: str, endpoint: str, body: dict) -> tuple[str, str, dict, object]:
+def _reserve_output_locked(jid: str, endpoint: str, body: dict) -> tuple[str, str, dict]:
     asset = str(body.get("name") or "asset")
     requested = config.safe_output_name(body.get("output_name"), asset)
     is_effect = endpoint == "/api/fx"
@@ -282,72 +273,177 @@ def _reserve_output_locked(jid: str, endpoint: str, body: dict) -> tuple[str, st
         reservation_prefix = os.path.realpath(base).casefold()
 
     export_name = requested
-    suffix = 0
-    while True:
-        key = f"{reservation_prefix}|{export_name.casefold()}"
-        if is_effect:
-            conflict = _effect_output_conflict(sprites_dir, export_name)
-        else:
-            conflict = os.path.exists(config.mesh_dir(export_name, base))
-        if key not in _RESERVED_OUTPUTS and not conflict:
-            reservation_handle = _try_output_lock(key)
-            if reservation_handle is not None:
-                # Recheck after taking the cross-process lock; another worker may
-                # have completed between the first filesystem check and lock.
-                if is_effect:
-                    conflict = _effect_output_conflict(sprites_dir, export_name)
-                else:
-                    conflict = os.path.exists(config.mesh_dir(export_name, base))
-                if not conflict:
-                    break
-                reservation_handle.close()
-        suffix += 1
-        tail = f"__job{jid}" if suffix == 1 else f"__job{jid}_{suffix}"
-        export_name = config.safe_output_name(f"{requested}{tail}", asset)
-
-    _RESERVED_OUTPUTS[key] = jid
+    key = f"{reservation_prefix}|{export_name.casefold()}"
+    reservation = _RESERVED_OUTPUTS.get(key)
+    if reservation is None:
+        reservation_handle = _try_output_lock(key)
+        if reservation_handle is None:
+            raise OSError(
+                f"Export '{export_name}' is currently in use by another queue. "
+                "Wait for that job to finish, then submit this export again.")
+        reservation = {"jobs": set(), "handle": reservation_handle}
+        _RESERVED_OUTPUTS[key] = reservation
+    reservation["jobs"].add(jid)
     body["output_name"] = export_name
-    cleanup = ({"kind": "effect", "base": base, "directory": sprites_dir,
-                "export_name": export_name} if is_effect else
-               {"kind": "tree", "base": base,
-                "path": config.mesh_dir(export_name, base)})
-    return export_name, key, cleanup, reservation_handle
+    if is_effect:
+        cleanup = {"kind": "effect", "base": base, "directory": sprites_dir,
+                   "export_name": export_name}
+    else:
+        output_path = config.mesh_dir(export_name, base)
+        cleanup = {"kind": "tree", "base": base, "path": output_path}
+        if endpoint == "/api/convert" and not body.get("run", True) and \
+                os.path.lexists(output_path):
+            cleanup["preserve_existing"] = True
+    return export_name, key, cleanup
+
+
+def _remove_output_path(path: str) -> None:
+    """Remove one output path without following a symlink at its root."""
+    if os.path.islink(path) or os.path.isfile(path):
+        os.remove(path)
+    elif os.path.isdir(path):
+        shutil.rmtree(path)
+
+
+def _output_path(base: str, path: str) -> str:
+    """Resolve an output path and ensure it stays beneath its configured base."""
+    real_base = os.path.realpath(base)
+    raw_path = os.path.abspath(path)
+    if os.path.islink(raw_path):
+        raise OSError(f"Refusing to replace symlink output: {raw_path}")
+    real_path = os.path.realpath(raw_path)
+    if not real_base or real_path == real_base or \
+            os.path.commonpath([real_base, real_path]) != real_base:
+        raise OSError(f"Output path is outside its configured folder: {raw_path}")
+    return real_path
+
+
+def _effect_output_names(directory: str, export_name: str) -> list[str]:
+    if not os.path.isdir(directory):
+        return []
+    frame_pattern = re.compile(rf"^{re.escape(export_name)}_\d+\.png$", re.IGNORECASE)
+    archive_names = {f"{export_name}_frames.zip".casefold(),
+                     f"{export_name}_frames.zip.tmp".casefold()}
+    return [filename for filename in os.listdir(directory)
+            if frame_pattern.fullmatch(filename) or filename.casefold() in archive_names]
+
+
+def _begin_output_update(job: dict) -> None:
+    """Move the previous export aside before writing the canonical basename."""
+    spec = job.get("cleanup") or {}
+    base = os.path.realpath(spec.get("base", ""))
+    os.makedirs(base, exist_ok=True)
+    if spec.get("kind") == "tree":
+        target = _output_path(base, spec["path"])
+        if spec.get("preserve_existing") and os.path.lexists(target):
+            # --no-blender writes scene intermediates but does not replace the
+            # existing GLB/export folder; leave that folder in place.
+            job["_output_started"] = False
+            return
+        if os.path.lexists(target):
+            backup_dir = tempfile.mkdtemp(prefix=".darkorbit-output-backup-", dir=base)
+            backup_path = os.path.join(backup_dir, os.path.basename(target))
+            try:
+                os.replace(target, backup_path)
+            except BaseException:
+                _remove_output_path(backup_dir)
+                raise
+            job["_output_backup"] = {"kind": "tree", "directory": backup_dir,
+                                     "path": backup_path}
+        job["_output_started"] = True
+        return
+
+    if spec.get("kind") == "effect":
+        directory = _output_path(base, spec["directory"])
+        filenames = _effect_output_names(directory, spec["export_name"])
+        if not filenames:
+            job["_output_started"] = True
+            return
+        backup_dir = tempfile.mkdtemp(prefix=".darkorbit-output-backup-", dir=base)
+        moved = []
+        try:
+            for filename in filenames:
+                source = os.path.join(directory, filename)
+                if os.path.islink(source) or not os.path.isfile(source):
+                    raise OSError(f"Refusing to replace non-file effect output: {source}")
+                os.replace(source, os.path.join(backup_dir, filename))
+                moved.append(filename)
+        except BaseException:
+            os.makedirs(directory, exist_ok=True)
+            for filename in moved:
+                os.replace(os.path.join(backup_dir, filename),
+                           os.path.join(directory, filename))
+            _remove_output_path(backup_dir)
+            raise
+        job["_output_backup"] = {"kind": "effect", "directory": backup_dir,
+                                 "target_directory": directory, "files": moved}
+        job["_output_started"] = True
+        return
+
+    raise ValueError("unknown output reservation type")
+
+
+def _restore_output_update(job: dict) -> tuple[int, bool]:
+    """Discard failed partial output and restore the last successful export."""
+    if not job.pop("_output_started", False):
+        return 0, True
+    removed = _cleanup_job_outputs(job)
+    if removed < 0:
+        return removed, False
+    backup = job.get("_output_backup")
+    if not backup:
+        return removed, True
+    try:
+        if backup["kind"] == "tree":
+            target = _output_path(job["cleanup"]["base"], job["cleanup"]["path"])
+            os.replace(backup["path"], target)
+        else:
+            target_directory = _output_path(job["cleanup"]["base"],
+                                            backup["target_directory"])
+            os.makedirs(target_directory, exist_ok=True)
+            for filename in backup["files"]:
+                os.replace(os.path.join(backup["directory"], filename),
+                           os.path.join(target_directory, filename))
+        _remove_output_path(backup["directory"])
+        job.pop("_output_backup", None)
+        return removed, True
+    except (OSError, ValueError, KeyError):
+        return removed, False
+
+
+def _discard_output_backup(job: dict) -> bool:
+    backup = job.get("_output_backup")
+    if not backup:
+        job.pop("_output_started", None)
+        return True
+    try:
+        _remove_output_path(backup["directory"])
+        job.pop("_output_backup", None)
+        job.pop("_output_started", None)
+        return True
+    except OSError:
+        return False
 
 
 def _cleanup_job_outputs(job: dict) -> int:
-    """Remove only output paths reserved as new and owned by this job."""
+    """Remove partial output at the canonical path reserved by this job."""
     spec = job.get("cleanup") or {}
     try:
         base = os.path.realpath(spec.get("base", ""))
         if spec.get("kind") == "tree":
-            raw_path = os.path.abspath(spec.get("path", ""))
-            if os.path.islink(raw_path):
-                return -1
-            path = os.path.realpath(raw_path)
-            if not base or path == base or os.path.commonpath([base, path]) != base:
-                return -1
-            if not os.path.isdir(path):
+            path = _output_path(base, spec.get("path", ""))
+            if not os.path.lexists(path):
                 return 0
-            shutil.rmtree(path)
+            _remove_output_path(path)
             return 1
         if spec.get("kind") == "effect":
-            raw_directory = os.path.abspath(spec.get("directory", ""))
-            if os.path.islink(raw_directory):
-                return -1
-            directory = os.path.realpath(raw_directory)
-            if not base or directory == base or os.path.commonpath([base, directory]) != base:
-                return -1
-            export_name = spec["export_name"]
-            frame_pattern = re.compile(rf"^{re.escape(export_name)}_\d+\.png$")
-            archive_names = {f"{export_name}_frames.zip",
-                             f"{export_name}_frames.zip.tmp"}
+            directory = _output_path(base, spec.get("directory", ""))
             removed = 0
-            for filename in os.listdir(directory) if os.path.isdir(directory) else ():
-                if frame_pattern.fullmatch(filename) or filename in archive_names:
-                    path = os.path.join(directory, filename)
-                    if os.path.isfile(path) and not os.path.islink(path):
-                        os.remove(path)
-                        removed += 1
+            for filename in _effect_output_names(directory, spec["export_name"]):
+                path = os.path.join(directory, filename)
+                if os.path.isfile(path) and not os.path.islink(path):
+                    os.remove(path)
+                    removed += 1
             return removed
     except (OSError, ValueError, KeyError):
         return -1
@@ -356,14 +452,17 @@ def _cleanup_job_outputs(job: dict) -> int:
 
 def _release_reservation_locked(job: dict):
     key = job.get("reservation_key")
-    if key and _RESERVED_OUTPUTS.get(key) == job.get("id"):
-        _RESERVED_OUTPUTS.pop(key, None)
-    handle = job.pop("reservation_handle", None)
-    if handle is not None:
-        try:
-            handle.close()
-        except OSError:
-            pass
+    reservation = _RESERVED_OUTPUTS.get(key) if key else None
+    if reservation:
+        reservation["jobs"].discard(job.get("id"))
+        if not reservation["jobs"]:
+            _RESERVED_OUTPUTS.pop(key, None)
+            handle = reservation.get("handle")
+            if handle is not None:
+                try:
+                    handle.close()
+                except OSError:
+                    pass
 
 
 def _job_worker():
@@ -396,6 +495,7 @@ def _job_worker():
         control = JobControl(jid, job)
         try:
             control.check_cancelled()
+            _begin_output_update(job)
             result = fn(control)
             control.check_cancelled()
             with _LOCK:
@@ -403,14 +503,17 @@ def _job_worker():
                     raise CancelledError("job cancelled")
                 job["result"] = result
                 job["status"] = "done"
+            if not _discard_output_backup(job):
+                with _LOCK:
+                    job["log"].append("previous export backup could not be removed")
         except BaseException as e:   # incl. SystemExit, so failures never hang the job
+            removed, restored = _restore_output_update(job)
             if job["cancel_event"].is_set() or isinstance(e, CancelledError):
-                removed = _cleanup_job_outputs(job)
                 with _LOCK:
                     job["result"] = None
                     job["status"] = "cancelled"
-                    if removed < 0:
-                        job["log"].append("cancelled · automatic output cleanup failed")
+                    if not restored:
+                        job["log"].append("cancelled · output rollback needs attention")
                     else:
                         job["log"].append(
                             f"cancelled · cleaned {removed} output item(s)" if removed
@@ -419,6 +522,8 @@ def _job_worker():
                 with _LOCK:
                     job["error"] = str(e) or e.__class__.__name__
                     job["status"] = "error"
+                    if not restored:
+                        job["log"].append("failed · output rollback needs attention")
         finally:
             with _LOCK:
                 job["process"] = None
@@ -446,7 +551,7 @@ def _start_job(fn, endpoint=None, body=None):
         jid = str(_SEQ[0])
         job = {"id": jid, "status": "queued", "log": ["queued"],
                "result": None, "error": None, "cancel_event": threading.Event(),
-               "process": None, "reservation_handle": None,
+               "process": None,
                "created_at": time.time(), "started_at": None,
                "finished_at": None, "cleanup": None, "reservation_key": None,
                "job_type": endpoint or "job", "asset": "", "output_name": ""}
@@ -455,12 +560,11 @@ def _start_job(fn, endpoint=None, body=None):
             job["fx"] = bool(body.get("fx"))
             job["requested_output_name"] = config.safe_output_name(
                 body.get("output_name"), job["asset"])
-            output_name, reservation_key, cleanup, reservation_handle = \
+            output_name, reservation_key, cleanup = \
                 _reserve_output_locked(jid, endpoint, body)
             job["output_name"] = output_name
             job["reservation_key"] = reservation_key
             job["cleanup"] = cleanup
-            job["reservation_handle"] = reservation_handle
         _JOBS[jid] = job
         _QUEUE.put((jid, fn))
         _QUEUE_WAKE.set()
@@ -489,7 +593,7 @@ def api_job(q):
             return {"status": "unknown"}
         result = {key: value for key, value in job.items()
                   if key not in {"cancel_event", "process", "cleanup", "reservation_key",
-                                 "reservation_handle"}}
+                                 "_output_backup", "_output_started"}}
         result["log"] = job["log"][-8:]
         result["cancelable"] = job["status"] in {"queued", "running"}
     result["queue_position"] = _queue_position(jid)
