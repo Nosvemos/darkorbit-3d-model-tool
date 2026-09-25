@@ -32,7 +32,8 @@ def test_render_overrides_mapping():
     ap = build_parser()
     a = ap.parse_args(["render", "m", "--frames", "8", "--persp",
                        "--no-crop", "--mode", "item", "--hdri", "city.exr",
-                       "--profile", "studio", "--sun-pan", "35"])
+                       "--profile", "darkorbit", "--camera-model", "orbit",
+                       "--light-model", "blender", "--sun-pan", "35"])
     ov = render_mod.overrides_from_args(a)
     assert ov["frames"] == 8
     assert ov["cam_ortho"] is False
@@ -40,7 +41,9 @@ def test_render_overrides_mapping():
     assert ov["mode"] == "item"
     assert ov["world_hdri"] == "city.exr"
     assert ov["use_hdri"] is True
-    assert ov["profile"] == "studio"
+    assert ov["profile"] == "darkorbit"
+    assert ov["camera_model"] == "orbit"
+    assert ov["light_model"] == "blender"
     assert ov["sun_pan"] == 35
 
 

@@ -132,7 +132,7 @@ A mesh name (without extension) is the positional argument for `convert`,
 
 | Option               | Default       | Description                              |
 |----------------------|---------------|------------------------------------------|
-| `--profile NAME`     | `darkorbit`   | Visual profile: `darkorbit` or `studio`. |
+| `--profile NAME`     | `darkorbit`   | Visual profile; camera and lighting can also be configured individually below. |
 | `--hdri FILE`        | `studio.exr`  | Bundled world HDRI; also enables HDRI.   |
 | `--use-hdri` / `--no-hdri` | off in `darkorbit` | Toggle Blender HDRI world lighting. |
 | `--world-strength F` | 0.5           | World/background strength; does not control ship-material fill. |
@@ -159,7 +159,9 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--overlay NAME`     | —             | Overlay another mesh (AWD) on top of the main model. |
 
 Bundled HDRIs: `studio` · `city` · `courtyard` · `forest` · `interior` · `night`
-· `sunrise` · `sunset`. They are used by `--profile studio` or `--use-hdri`.
+· `sunrise` · `sunset`. Select one with `--hdri <name>.exr` or use `--use-hdri`
+with the configured world HDRI. Camera, light, color, and HDRI controls remain
+available without a studio profile.
 All defaults live in `RENDER_DEFAULTS`
 ([`src/config.py`](src/config.py)).
 

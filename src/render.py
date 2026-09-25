@@ -7,7 +7,7 @@ coordinate adjustment in system Python (Pillow).
 Usage:
     python -m src.render sibelon
     python -m src.render sibelon --frames 36 --resolution 512
-    python -m src.render sibelon --profile studio --hdri city.exr
+    python -m src.render sibelon --camera-model orbit --light-model blender --hdri city.exr
     python -m src.render --all
 """
 from __future__ import annotations

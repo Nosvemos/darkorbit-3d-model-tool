@@ -282,7 +282,7 @@ function renderActions(){
     return;
   }
   a.innerHTML = `<div class="row">
-      <label>profile<select class="opt" data-key="profile" id="o_profile"><option value="darkorbit" selected>darkorbit</option><option value="studio">studio</option></select></label>
+      <label>profile<select class="opt" data-key="profile" id="o_profile"><option value="darkorbit" selected>darkorbit</option></select></label>
       <label>mode<select class="opt" data-key="mode"><option>auto</option><option>ship</option><option>item</option></select></label>
       <label>quality<select class="opt" data-key="quality" id="o_quality">
         <option value="extra_low">extra low</option>
@@ -377,15 +377,6 @@ function renderActions(){
       cam_fov:30, cam_tilt:135, cam_pan:25, cam_distance:"",
       light_quality:"medium", hero_light:false
     },
-    studio: {
-      camera_model:"orbit", light_model:"blender", use_hdri:true, world_hdri:"studio.exr",
-      world_strength:0.8, world_color:"#ffffff", ambient_strength:0.8, ambient_color:"#ffffff",
-      sun_energy:1.5, sun_color:"#ffffff",
-      specular_strength:1,
-      sun_tilt:100, sun_pan:35, emission_strength:0.6, cam_ortho:true,
-      cam_fov:35, cam_tilt:135, cam_pan:25, cam_distance:"",
-      light_quality:"medium", hero_light:false
-    }
   };
   const profileKeys = new Set(Object.values(profiles).flatMap(p=>Object.keys(p)));
   const applyProfile = (name, overrides = {}) => {
@@ -418,6 +409,7 @@ function renderActions(){
   $("#b_convert").onclick = runConvert;
 
   restoreSettings(saved, profileKeys);
+  if(!profiles[$("#o_profile").value]) $("#o_profile").value = "darkorbit";
   applyProfile($("#o_profile").value, saved?._profile_overrides || {});
 }
 

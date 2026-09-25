@@ -98,28 +98,6 @@ RENDER_PROFILES = {
         "light_quality": "medium",
         "hero_light": False,
     },
-    "studio": {
-        "camera_model": "orbit",
-        "light_model": "blender",
-        "use_hdri": True,
-        "world_hdri": "studio.exr",
-        "world_strength": 0.8,
-        "world_color": "#ffffff",
-        "ambient_strength": 0.8,
-        "ambient_color": "#ffffff",
-        "sun_energy": 1.5,
-        "sun_color": "#ffffff",
-        "specular_strength": 1.0,
-        "sun_angle": [50.0, 0.0, 40.0],
-        "emission_strength": 0.6,
-        "cam_ortho": True,
-        "cam_fov": 35.0,
-        "cam_elevation": 55.0,
-        "cam_azimuth": -90.0,
-        "cam_distance": None,
-        "light_quality": "medium",
-        "hero_light": False,
-    },
 }
 
 # Default render settings. Override per-run via src.render CLI flags; the whole
