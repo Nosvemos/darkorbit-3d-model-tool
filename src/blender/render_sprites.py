@@ -190,12 +190,13 @@ def setup_hero_light(cfg, center, radius):
 
 
 def apply_away3d_lighting(cfg):
-    """Restore the client's separate ambient and specular-light terms in EEVEE.
+    """Approximate Away3D ambient and specular terms in EEVEE.
 
     An EEVEE World surface provides a background, not ambient irradiance. The
-    map XML supplies ambientColor/ambient separately from the sun, so add that
-    diffuse-colored fill as emission while retaining direct sun shading. The
-    light's specular multiplier is likewise separate from the material map.
+    render profile therefore supplies a material-fill color and strength
+    separately from the map/world settings. This is a renderer-specific visual
+    approximation because the client's material shader is not in the dump.
+    The light's specular multiplier is likewise separate from the material map.
     """
     if cfg.get("light_model") != "darkorbit":
         return
@@ -274,9 +275,11 @@ def apply_away3d_lighting(cfg):
         nt.links.new(add_specular.outputs[0], surface)
         mat["darkorbit_specular_lobe"] = True
 
-    ambient_strength = max(0.0, float(cfg.get("world_strength", 0.0)))
+    ambient_strength = max(0.0, float(cfg.get(
+        "ambient_strength", cfg.get("world_strength", 0.0))))
     if ambient_strength > 0:
-        ambient_color = hex_to_rgb(cfg.get("world_color", "#ffffff"))
+        ambient_color = hex_to_rgb(cfg.get(
+            "ambient_color", cfg.get("world_color", "#ffffff")))
         for mat in bpy.data.materials:
             if not mat.node_tree:
                 continue

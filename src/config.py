@@ -78,9 +78,15 @@ RENDER_PROFILES = {
         "use_hdri": False,
         "world_strength": 0.5,
         "world_color": "#ff855c",
-        "sun_energy": 0.8,
+        # Keep the map's recorded ambientColor for the world/background, but
+        # tune the material fill and direct-light levels against the current
+        # Goliath ATF palette. The game shader is absent from the client dump;
+        # stronger direct/specular terms wash its blue-grey albedo toward pink.
+        "ambient_strength": 0.2,
+        "ambient_color": "#aed3ff",
+        "sun_energy": 0.4,
         "sun_color": "#a3ffff",
-        "specular_strength": 1.1,
+        "specular_strength": 0.4,
         "sun_tilt": 100.0,
         "sun_pan": 35.0,
         "emission_strength": 1.0,
@@ -99,6 +105,8 @@ RENDER_PROFILES = {
         "world_hdri": "studio.exr",
         "world_strength": 0.8,
         "world_color": "#ffffff",
+        "ambient_strength": 0.8,
+        "ambient_color": "#ffffff",
         "sun_energy": 1.5,
         "sun_color": "#ffffff",
         "specular_strength": 1.0,
@@ -143,6 +151,8 @@ RENDER_DEFAULTS = {
     "world_hdri": "studio.exr",   # bundled Blender studio light (when use_hdri)
     "world_strength": 0.5,         # map ambient=0.5 (Blender strength approximation)
     "world_color": "#ff855c",     # map ambientColor=0xFF855C
+    "ambient_strength": 0.5,       # material fill; DarkOrbit profile overrides this approximation
+    "ambient_color": "#ffffff",    # material fill color; profile-specific
 
     "sun_energy": 0.8,             # map diffuse=0.8 (Blender energy approximation)
     "sun_color": "#a3ffff",       # map color=0xA3FFFF

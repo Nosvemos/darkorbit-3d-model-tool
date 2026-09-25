@@ -9,19 +9,25 @@ contains 3D map lighting entries. The baseline entries for the standard home map
 | Client field | Client value | Tool setting | Interpretation |
 |---|---:|---|---|
 | `color` | `0xA3FFFF` | `sun_color: #a3ffff` | Directional light color |
-| `diffuse` | `0.8` | `sun_energy: 0.8` | Blender energy approximation |
-| `ambientColor` | `0xFF855C` | `world_color: #ff855c` | Ambient/world color |
-| `ambient` | `0.5` | `world_strength: 0.5` | Blender strength approximation |
-| `specular` | `1.1` | `specular_strength: 1.1` | Specular-light multiplier |
+| `diffuse` | `0.8` | `sun_energy: 0.4` | Tuned Blender direct-light energy; units differ |
+| `ambientColor` | `0xFF855C` | `world_color: #ff855c` | Recorded map/world color |
+| `ambient` | `0.5` | `world_strength: 0.5`; `ambient_strength: 0.2` | World/background value plus tuned material fill |
+| `specular` | `1.1` | `specular_strength: 0.4` | Tuned with the renderer's separate specular lobe |
 | `tilt` | `100` | `sun_tilt: 100` | Directional light orientation |
 | `pan` | `35` | `sun_pan: 35` | Directional light orientation |
 
-The color and direction values transfer directly. Away3D's `diffuse` and `ambient`
-are not numerically equivalent to Blender's light energy and world strength, so
-their numeric settings remain practical approximations. EEVEE does not use its
-World surface as ambient irradiance; the render path therefore adds the map's
-ambient color as a diffuse-colored fill term. The specular scalar is applied
-separately from the material's specular map.
+The map values are retained separately from the material fill used by the
+renderer. EEVEE does not use its World surface as ambient irradiance, and the
+supplied client dump does not include DarkOrbit's material shader. Applying the
+map's warm `ambientColor` directly to the current Goliath diffuse atlas turned
+its blue-grey source palette brown. The previous direct and specular settings
+also made the rendered albedo too bright and neutral. The DarkOrbit render
+profile keeps the XML ambient values as world/background settings and uses a
+renderer-specific cool material fill (`ambient_color: #aed3ff`,
+`ambient_strength: 0.2`), `sun_energy: 0.4`, and `specular_strength: 0.4`.
+These are visual approximations tuned against the source Goliath ATF palette,
+not values extracted from the game. The specular response remains separate
+from the material's specular map.
 
 The upstream [Away3D `BasicSpecularMethod` source](https://github.com/away3d/away3d-core-fp11/blob/master/src/away3d/materials/methods/BasicSpecularMethod.as)
 defines the specular map's red channel as highlight strength and green channel

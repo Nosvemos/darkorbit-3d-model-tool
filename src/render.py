@@ -197,6 +197,7 @@ _FLAG_TO_KEY = {
     "samples": "samples", "engine": "engine", "view_transform": "view_transform",
     "origin": "coord_origin", "hdri": "world_hdri",
     "world_strength": "world_strength", "sun_energy": "sun_energy",
+    "ambient_strength": "ambient_strength",
     "specular_strength": "specular_strength",
     "emission": "emission_strength", "elevation": "cam_elevation",
     "azimuth": "cam_azimuth", "cam_tilt": "cam_tilt", "cam_pan": "cam_pan",
@@ -206,6 +207,7 @@ _FLAG_TO_KEY = {
     "light_quality": "light_quality", "margin": "cam_margin",
     "anim_frame_start": "anim_frame_start", "anim_frame_end": "anim_frame_end",
     "sun_color": "sun_color", "world_color": "world_color",
+    "ambient_color": "ambient_color",
     "quality": "quality",
     "hide_objects": "hide_objects",
     "crop_align": "crop_align",
@@ -258,6 +260,8 @@ def add_render_args(ap):
     g.add_argument("--no-hdri", action="store_true",
                    help="disable Blender world HDRI lighting")
     g.add_argument("--world-strength", type=float, dest="world_strength")
+    g.add_argument("--ambient-strength", type=float, dest="ambient_strength",
+                   help="material ambient-fill strength (separate from world background)")
     g.add_argument("--sun-energy", type=float, dest="sun_energy")
     g.add_argument("--specular-strength", type=float, dest="specular_strength",
                    help="DarkOrbit LightSettings specular multiplier")
@@ -291,6 +295,8 @@ def add_render_args(ap):
                    help="disable DarkOrbit hero-position point light")
     g.add_argument("--sun-color", dest="sun_color", help="sun light color (hex)")
     g.add_argument("--world-color", dest="world_color", help="world background light color (hex)")
+    g.add_argument("--ambient-color", dest="ambient_color",
+                   help="material ambient-fill color (hex)")
 
 
 def overrides_from_args(args) -> dict:

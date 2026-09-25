@@ -323,12 +323,14 @@ function renderActions(){
         ${num({label:"emission",key:"emission_strength"},1,"0.1")}
         ${num({label:"anim start",key:"anim_frame_start"},1)}
         ${num({label:"anim end",key:"anim_frame_end"},"")}
-        ${num({label:"world str",key:"world_strength"},0.5,"0.1")}
+        ${num({label:"world bg",key:"world_strength"},0.5,"0.1")}
+        ${num({label:"ambient fill",key:"ambient_strength"},0.2,"0.05")}
         ${num({label:"sun energy",key:"sun_energy"},0.8,"0.1")}
-        ${num({label:"specular",key:"specular_strength"},1.1,"0.1")}
+        ${num({label:"specular",key:"specular_strength"},0.4,"0.1")}
         ${num({label:"sun tilt°",key:"sun_tilt"},100)}
         ${num({label:"sun pan°",key:"sun_pan"},35)}
         ${color({label:"world color",key:"world_color"},"#ff855c")}
+        ${color({label:"fill color",key:"ambient_color"},"#aed3ff")}
         ${color({label:"sun color",key:"sun_color"},"#a3ffff")}
         <label>camera<select class="opt" data-key="camera_model"><option value="darkorbit">darkorbit</option><option value="orbit">orbit</option></select></label>
         <label>light<select class="opt" data-key="light_model"><option value="darkorbit">darkorbit</option><option value="blender">blender</option></select></label>
@@ -369,14 +371,16 @@ function renderActions(){
   const profiles = {
     darkorbit: {
       camera_model:"darkorbit", light_model:"darkorbit", use_hdri:false,
-      world_strength:0.5, world_color:"#ff855c", sun_energy:0.8, sun_color:"#a3ffff", specular_strength:1.1,
+      world_strength:0.5, world_color:"#ff855c", ambient_strength:0.2, ambient_color:"#aed3ff",
+      sun_energy:0.4, sun_color:"#a3ffff", specular_strength:0.4,
       sun_tilt:100, sun_pan:35, emission_strength:1, cam_ortho:false,
       cam_fov:30, cam_tilt:135, cam_pan:25, cam_distance:"",
       light_quality:"medium", hero_light:false
     },
     studio: {
       camera_model:"orbit", light_model:"blender", use_hdri:true, world_hdri:"studio.exr",
-      world_strength:0.8, world_color:"#ffffff", sun_energy:1.5, sun_color:"#ffffff",
+      world_strength:0.8, world_color:"#ffffff", ambient_strength:0.8, ambient_color:"#ffffff",
+      sun_energy:1.5, sun_color:"#ffffff",
       specular_strength:1,
       sun_tilt:100, sun_pan:35, emission_strength:0.6, cam_ortho:true,
       cam_fov:35, cam_tilt:135, cam_pan:25, cam_distance:"",
