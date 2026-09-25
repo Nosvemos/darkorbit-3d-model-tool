@@ -69,3 +69,6 @@ class QueueClient:
 
     def cancel(self, job_id: str) -> dict:
         return self.post("/api/job/cancel", {"id": job_id})
+
+    def clear_history(self) -> dict:
+        return self.post("/api/jobs/clear", {})

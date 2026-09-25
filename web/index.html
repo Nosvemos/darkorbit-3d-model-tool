@@ -105,6 +105,7 @@
     stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
   .queue-run-toggle { margin-right:auto; color:#ffcb76; }
   .queue-run-toggle.resume { color:#9be3ad; }
+  .queue-clear { color:var(--mut); }
   .queue-close { width:28px; height:28px; padding:0; font-size:20px; line-height:1; }
   .queue-cancel { color:#ffb3a9; border-color:#69433f; }
   .queue-toggle:hover, .queue-cancel:hover { filter:brightness(1.2); }
@@ -206,6 +207,8 @@
             <span id="queue-run-label">Pause queue</span>
           </button>
           <button class="queue-toggle" id="queue-history" type="button" hidden>Show history</button>
+          <button class="queue-toggle queue-clear" id="queue-clear" type="button" disabled
+            title="Remove finished jobs from history. Output files are kept.">Clear history</button>
           <button class="queue-toggle" id="queue-refresh" type="button" title="Refresh queue">Refresh</button>
         </div>
       </div>
@@ -259,6 +262,7 @@ let kind = "meshes", sel = null, items = [];
 let frames = [], fi = 0, timer = null;
 let queueHistoryVisible = false;
 let queueOpen = false, queuePaused = false;
+let queueClearing = false;
 
 const isFx = () => kind === "fx";
 const isEffect = () => kind === "effects";
@@ -382,6 +386,8 @@ function renderQueue(data){
   const historyButton = $("#queue-history");
   historyButton.hidden = history.length <= 3;
   historyButton.textContent = queueHistoryVisible ? "Hide history" : `Show history (${history.length})`;
+  const clearButton = $("#queue-clear");
+  clearButton.disabled = queueClearing || history.length === 0;
   $("#queue-empty").hidden = visible.length > 0;
 
   visible.forEach(job=>{
@@ -442,6 +448,29 @@ async function refreshJobs(){
 }
 $("#queue-refresh").onclick = refreshJobs;
 $("#queue-history").onclick = ()=>{ queueHistoryVisible=!queueHistoryVisible; refreshJobs(); };
+$("#queue-clear").onclick = async ()=>{
+  const button = $("#queue-clear");
+  if(queueClearing || button.disabled) return;
+  queueClearing = true;
+  button.disabled = true;
+  let cleared = 0;
+  let failure = "";
+  try {
+    const result = await jpost("/api/jobs/clear", {});
+    cleared = Number(result.cleared) || 0;
+    queueHistoryVisible = false;
+  } catch(e) {
+    failure = e.message;
+  } finally {
+    queueClearing = false;
+    await refreshJobs();
+  }
+  $("#queue-summary").textContent = failure
+    ? "Clear history failed · " + failure
+    : cleared
+      ? `Cleared ${cleared} finished job${cleared === 1 ? "" : "s"} · output files kept`
+      : "No finished jobs to clear";
+};
 $("#queue-run-toggle").addEventListener("click", async ()=>{
   const button = $("#queue-run-toggle");
   button.disabled = true;

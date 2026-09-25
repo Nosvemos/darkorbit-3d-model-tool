@@ -530,6 +530,17 @@ def api_jobs(_q=None):
                        "finished": len(history)}}
 
 
+def api_clear_history():
+    """Remove finished job records while preserving active work and outputs."""
+    finished_statuses = {"done", "error", "cancelled"}
+    with _LOCK:
+        finished_ids = [jid for jid, job in _JOBS.items()
+                        if job["status"] in finished_statuses]
+        for jid in finished_ids:
+            del _JOBS[jid]
+    return {"ok": True, "cleared": len(finished_ids)}
+
+
 def api_cancel_job(jid: str):
     process = None
     queued_cancel = False
@@ -610,6 +621,8 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/job/cancel":
             result = api_cancel_job(str(body.get("id") or ""))
             return self._send(200 if result["ok"] else 404, result)
+        if u.path == "/api/jobs/clear":
+            return self._send(200, api_clear_history())
         routes = {"/api/convert": api_convert, "/api/render": api_render,
                   "/api/fx": api_fx}
         fn = routes.get(u.path)
@@ -644,7 +657,8 @@ class QueueHandler(Handler):
 
     def do_POST(self):
         if urlparse(self.path).path not in {
-                "/api/queue/control", "/api/job/cancel", "/api/convert",
+                "/api/queue/control", "/api/job/cancel", "/api/jobs/clear",
+                "/api/convert",
                 "/api/render", "/api/fx"}:
             return self._send(404, {"error": "not found"})
         return super().do_POST()

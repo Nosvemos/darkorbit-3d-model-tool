@@ -198,6 +198,7 @@ do3d queue pause
 do3d queue resume
 do3d queue watch 12
 do3d queue cancel 12
+do3d queue clear
 ```
 
 Start `do3d queue serve` in its own terminal before submitting CLI jobs. The
@@ -207,6 +208,11 @@ history are independent from the web UI queue on port 8765. Each queue still
 serializes its own work and uses the same cancellation cleanup and output-name
 collision protection. Queue state lives in its service process; stopping that
 process ends that queue session.
+
+`do3d queue clear` removes completed, failed, and cancelled records from that
+queue's history. It leaves queued and running jobs alone and keeps all output
+files. The web queue's **Clear history** button follows the same rule for its
+independent queue.
 
 ## Output structure
 
@@ -259,6 +265,8 @@ the active render. Stopping a job terminates its Blender process and removes
 that job's partial output. Existing output folders are preserved: if an export
 name is already present or reserved, the UI assigns
 a unique `__job<N>` suffix and shows the final name in the queue.
+Use **Clear history** to remove finished job entries while keeping their output
+files and any active or waiting jobs.
 
 The toolbar queue icon reflects running, waiting, paused, and completed states.
 The queue popover opens on click and closes with the same icon, an outside click,

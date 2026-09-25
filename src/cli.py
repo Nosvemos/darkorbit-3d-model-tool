@@ -317,6 +317,13 @@ def cmd_queue_cancel(args):
         print(f"Job {args.job_id}: {status}")
 
 
+def cmd_queue_clear(args):
+    data = QueueClient(args.queue_server).clear_history()
+    cleared = int(data.get("cleared", 0))
+    label = "job" if cleared == 1 else "jobs"
+    print(f"Cleared {cleared} finished {label} from queue history; output files were kept.")
+
+
 def cmd_queue_watch(args):
     return _watch_job(QueueClient(args.queue_server), args.job_id, args.interval)
 
@@ -444,6 +451,10 @@ def build_parser() -> argparse.ArgumentParser:
     qc.add_argument("job_id")
     qc.add_argument("--queue-server", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     qc.set_defaults(func=cmd_queue_cancel)
+    qclear = queue_actions.add_parser(
+        "clear", help="remove finished jobs from queue history; keep outputs")
+    qclear.add_argument("--queue-server", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    qclear.set_defaults(func=cmd_queue_clear)
     qw = queue_actions.add_parser("watch", help="follow one job's status and progress")
     qw.add_argument("job_id")
     qw.add_argument("--queue-server", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
