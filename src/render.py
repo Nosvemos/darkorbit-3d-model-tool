@@ -153,12 +153,16 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
 
     if progress:
         progress("rendering frames…")
-    run_cmd([config.BLENDER_EXE, "--background", "--python",
+    run_cmd([config.BLENDER_EXE, "--background", "--python-exit-code", "1", "--python",
              config.RENDER_SCRIPT, "--", glb, sprites, cfg_path], progress,
             cancel_event=cancel_event, process_callback=process_callback)
     check_cancelled()
 
     raw_path = os.path.join(sprites, f"{export_name}_render_raw.json")
+    if not os.path.isfile(raw_path):
+        raise RuntimeError(
+            "Blender finished without writing render metadata at "
+            f"{raw_path}; check the preceding Blender output in the queue log")
     with open(raw_path, encoding="utf-8") as f:
         raw = json.load(f)
     os.remove(raw_path)  # keep sprites/ tidy

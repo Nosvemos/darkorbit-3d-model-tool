@@ -316,7 +316,7 @@ def run_cmd(cmd: list[str], progress=None, cancel_event=None,
 
 def run_blender(scene_json: str, out_glb: str, gltf: bool, obj: bool,
                 progress=None, cancel_event=None, process_callback=None) -> None:
-    cmd = [config.BLENDER_EXE, "--background", "--python",
+    cmd = [config.BLENDER_EXE, "--background", "--python-exit-code", "1", "--python",
            config.BUILD_SCENE_SCRIPT, "--", scene_json, out_glb]
     if gltf:
         cmd.append("--gltf")
@@ -347,6 +347,9 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
     if run:
         run_blender(scene_json, out_glb, gltf, obj, progress=progress,
                     cancel_event=cancel_event, process_callback=process_callback)
+        if not os.path.isfile(out_glb) or os.path.getsize(out_glb) == 0:
+            raise RuntimeError(
+                f"Blender finished without creating the expected GLB: {out_glb}")
         with open(os.path.join(work, f"{export_name}_build.json"), "w",
                   encoding="utf-8") as f:
             json.dump({"version": config.MODEL_BUILD_VERSION,

@@ -310,7 +310,6 @@ def main():
     reset_scene()
     export_name = scene.get("name") or os.path.splitext(os.path.basename(out_glb))[0]
     bpy.context.scene.name = export_name
-    bpy.context.scene.collection.name = export_name
 
     meshes, points = [], []
     for obj in scene["objects"]:
@@ -339,6 +338,8 @@ def main():
                               export_yup=True, use_visible=True,
                               export_morph=True, export_animations=True,
                               export_animation_mode="NLA_TRACKS")
+    if not os.path.isfile(out_glb) or os.path.getsize(out_glb) == 0:
+        raise RuntimeError(f"GLB export did not create the expected file: {out_glb}")
     if want_gltf:
         d = os.path.join(base, "gltf")
         os.makedirs(d, exist_ok=True)

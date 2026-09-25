@@ -47,8 +47,8 @@ Mesh build stamps record the source mesh, the options that affect the GLB, and
 the selected source/texture file states. Reusing an export name for another
 asset or changing its input files therefore rebuilds the model instead of
 rendering a stale GLB from the previous asset.
-The GLB scene and top-level collection use the export name; mesh and point node
-names retain their source AWD labels for coordinate and object references.
+The GLB scene uses the export name; mesh and point node names retain their
+source AWD labels for coordinate and object references.
 
 ## FX mesh and particle effect paths
 
