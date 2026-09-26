@@ -433,6 +433,7 @@ function renderQueue(data){
     if(job.status === "done" && job.result){
       const links = queueElement("div", "queue-links");
       addQueueLink(links, job.result.glb, "GLB");
+      addQueueLink(links, job.result.blend, "Blender scene");
       addQueueLink(links, job.result.coords, "Coords.json");
       addQueueLink(links, job.result.archive, "Frames ZIP");
       if(job.result.first_frame) addQueueLink(links, job.result.first_frame, "First frame");
@@ -600,6 +601,11 @@ function renderActions(){
   }
   a.innerHTML = `<div class="row">
       <label>profile<select class="opt" data-key="profile" id="o_profile"><option value="darkorbit" selected>darkorbit</option></select></label>
+      ${kind === "meshes" && /^pet-([1-9]|1[0-5])$/i.test(sel) ? `<label>PET design<select class="opt" data-key="design" id="o_design">
+        <option value="">standard</option>
+        <option value="pet-frozen">Frozen</option>
+        <option value="pet-inferno">Inferno</option>
+      </select></label>` : ""}
       <label>mode<select class="opt" data-key="mode"><option>auto</option><option>ship</option><option>item</option></select></label>
       <label>quality<select class="opt" data-key="quality" id="o_quality">
         <option value="extra_low">extra low</option>
@@ -632,7 +638,11 @@ function renderActions(){
         ${num({label:"cam tilt°",key:"cam_tilt"},135)}
         ${num({label:"cam pan°",key:"cam_pan"},25)}
         ${num({label:"FOV°",key:"cam_fov"},30)}
-        ${num({label:"cam dist",key:"cam_distance"},"")}
+        ${num({label:"cam dist",key:"cam_distance"},1740)}
+        ${num({label:"game zoom",key:"cam_zoom"},1,"0.1")}
+        <label>framing<select class="opt" data-key="camera_framing"><option value="sprite">sprite crop</option><option value="native">game viewport</option></select></label>
+        ${num({label:"effect time (s)",key:"effect_time"},2,"0.1")}
+        ${num({label:"effect FPS",key:"effect_fps"},30)}
         ${num({label:"start angle°",key:"start_angle"},90)}
         ${num({label:"total°",key:"total_degrees"},360)}
         ${num({label:"margin",key:"cam_margin"},1.15,"0.05")}
@@ -641,18 +651,18 @@ function renderActions(){
         ${num({label:"anim start",key:"anim_frame_start"},1)}
         ${num({label:"anim end",key:"anim_frame_end"},"")}
         ${num({label:"world bg",key:"world_strength"},0.5,"0.1")}
-        ${num({label:"ambient fill",key:"ambient_strength"},0.2,"0.05")}
+        ${num({label:"ambient fill",key:"ambient_strength"},0.5,"0.05")}
         ${num({label:"sun energy",key:"sun_energy"},0.8,"0.1")}
-        ${num({label:"specular",key:"specular_strength"},0.4,"0.1")}
+        ${num({label:"specular",key:"specular_strength"},1.1,"0.1")}
         ${num({label:"sun tilt°",key:"sun_tilt"},100)}
         ${num({label:"sun pan°",key:"sun_pan"},35)}
         ${color({label:"world color",key:"world_color"},"#ff855c")}
-        ${color({label:"fill color",key:"ambient_color"},"#aed3ff")}
+        ${color({label:"fill color",key:"ambient_color"},"#ff855c")}
         ${color({label:"sun color",key:"sun_color"},"#a3ffff")}
         <label>camera<select class="opt" data-key="camera_model"><option value="darkorbit">darkorbit</option><option value="orbit">orbit</option></select></label>
         <label>light<select class="opt" data-key="light_model"><option value="darkorbit">darkorbit</option><option value="blender">blender</option></select></label>
         <label>light quality<select class="opt" data-key="light_quality"><option>medium</option><option>low</option><option>high</option></select></label>
-        <label>view<select class="opt" data-key="view_transform"><option>Standard</option><option>AgX</option><option>Filmic</option></select></label>
+        <label>view<select class="opt" data-key="view_transform"><option>Raw</option><option>Standard</option><option>AgX</option><option>Filmic</option></select></label>
         <label class="chk"><input type="checkbox" class="optbool" data-key="use_hdri" data-invert="1"> HDRI</label>
         <label class="chk"><input type="checkbox" class="optbool" data-key="hero_light" data-invert="1"> hero light</label>
         <label class="chk"><input type="checkbox" class="optbool" data-key="cam_ortho" data-invert="1"> orthographic</label>
@@ -688,10 +698,10 @@ function renderActions(){
   const profiles = {
     darkorbit: {
       camera_model:"darkorbit", light_model:"darkorbit", use_hdri:false,
-      world_strength:0.5, world_color:"#ff855c", ambient_strength:0.2, ambient_color:"#aed3ff",
-      sun_energy:0.4, sun_color:"#a3ffff", specular_strength:0.4,
+      world_strength:0.5, world_color:"#ff855c", ambient_strength:0.5, ambient_color:"#ff855c",
+      sun_energy:0.8, sun_color:"#a3ffff", specular_strength:1.1,
       sun_tilt:100, sun_pan:35, emission_strength:1, cam_ortho:false,
-      cam_fov:30, cam_tilt:135, cam_pan:25, cam_distance:"",
+      cam_fov:30, cam_tilt:135, cam_pan:25, cam_distance:1740, camera_framing:"sprite", view_transform:"Raw", start_angle:90,
       light_quality:"medium", hero_light:false
     },
   };
@@ -783,13 +793,14 @@ async function runConvert(){
       fx: k==="fx",
       gltf: $("#o_gltf").checked,
       obj: $("#o_obj").checked,
+      design: $("#o_design")?.value || "",
       textures: collectTextures(),
       clip: ($("#o_clip")||{}).value||"",
       overlay: ($("#o_overlay")||{}).value||"",
       output_name: ($("#o_output_name")||{}).value||"",
       hide_objects: collectHiddenObjects()
     }, status);
-    if(sameSelection(s,k)){ setStatus("converted ✓"); showLinks({glb:r.glb}); }
+    if(sameSelection(s,k)){ setStatus("converted ✓"); showLinks({glb:r.glb,blend:r.blend}); }
   }catch(e){ if(sameSelection(s,k)) setStatus(jobFailure(e)); }
   finally{ if(sameSelection(s,k)) busy(false); }
 }
@@ -801,6 +812,7 @@ async function runRender(){
     const r = await runJob("/api/render", Object.assign({
       name: s,
       fx: k==="fx",
+      design: $("#o_design")?.value || "",
       textures: collectTextures(),
       clip: ($("#o_clip")||{}).value||"",
       hide_objects: collectHiddenObjects()
@@ -835,6 +847,7 @@ async function runFx(){
 function showLinks(r){
   const l = $("#links"); l.innerHTML="";
   const t = Date.now();
+  if(r.blend) l.innerHTML += `<a href="${r.blend}?t=${t}" download>⬇ Blender scene</a>`;
   if(r.glb) l.innerHTML += `<a href="${r.glb}?t=${t}" download>⬇ glb</a>`;
   if(r.coords) l.innerHTML += `<a href="${r.coords}?t=${t}" target="_blank">Coords.json</a>`;
   if(r.archive) l.innerHTML += `<a href="${r.archive}?t=${t}" download>⬇ frames ZIP</a>`;

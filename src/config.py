@@ -71,12 +71,55 @@ BLENDER_EXE = os.environ.get(
 
 BUILD_SCENE_SCRIPT = os.path.join(ROOT, "src", "blender", "build_scene.py")
 RENDER_SCRIPT = os.path.join(ROOT, "src", "blender", "render_sprites.py")
-MODEL_BUILD_VERSION = 4  # bump when the generated GLB scene/material contract changes
+MODEL_BUILD_VERSION = 7  # handedness, source materials, mask and object provenance
+
+# PET appearance presets reconstructed from reference/client ships.xml. These
+# designs share pet-15 geometry and the ordinary PET texture set; their game
+# shader uses the bundled RimLightMethod MIX equations and OutlinePass.
+PET_DESIGNS = {
+    "pet-frozen": {
+        "label": "Frozen PET",
+        "geometry": "pet-15",
+        "visual_size": 1.1,
+        "textures": {
+            "diffuse": "pet_diffuse_512",
+            "normal": "pet_normal_512",
+            "specular": "pet_specular_512",
+            "glow": "pet_glow_512",
+        },
+        "rim_color": "#33CCFF",
+        "rim_strength": 2.0,
+        "rim_power": 2.0,
+        "outline_size": 1.5,
+        "particles": [
+            {"name": "frost_ship_trail", "scale": [0.6, 0.6, 0.6], "position": [0, 0, 0]},
+            {"name": "ice_cloud", "scale": [0.8, 0.2, 0.8], "position": [0, -30, 0]},
+        ],
+    },
+    "pet-inferno": {
+        "label": "Inferno PET",
+        "geometry": "pet-15",
+        "visual_size": 1.4,
+        "textures": {
+            "diffuse": "pet_diffuse_512",
+            "normal": "pet_normal_512",
+            "specular": "pet_specular_512",
+            "glow": "pet_glow_512",
+        },
+        "rim_color": "#FF0000",
+        "rim_strength": 1.0,
+        "rim_power": 1.0,
+        "outline_size": 0.25,
+        "particles": [
+            {"name": "fire_trail", "scale": [1.5, 1.5, 1.5], "position": [0, 0, 0]},
+        ],
+    },
+}
 
 # Named visual profiles applied before per-run overrides. The DarkOrbit map
 # lighting values follow the default 3D map entries in the reference
-# spacemap/graphics/maps-config.xml. Blender's energy/strength units are an
-# approximation of Away3D's diffuse/ambient scalars; see docs/06_darkorbit_profile_reference.md.
+# spacemap/graphics/maps-config.xml, map 1-1. Stage3D shader arithmetic uses
+# these scalars directly; see docs/06_darkorbit_profile_reference.md.
 RENDER_PROFILES = {
     "darkorbit": {
         "camera_model": "darkorbit",
@@ -84,15 +127,12 @@ RENDER_PROFILES = {
         "use_hdri": False,
         "world_strength": 0.5,
         "world_color": "#ff855c",
-        # Keep the map's recorded ambientColor for the world/background, but
-        # tune the material fill and direct-light levels against the current
-        # Goliath ATF palette. The game shader is absent from the client dump;
-        # stronger direct/specular terms wash its blue-grey albedo toward pink.
-        "ambient_strength": 0.2,
-        "ambient_color": "#aed3ff",
-        "sun_energy": 0.4,
+        "ambient_strength": 0.5,
+        "ambient_color": "#ff855c",
+        "sun_energy": 0.8,
         "sun_color": "#a3ffff",
-        "specular_strength": 0.4,
+        "specular_strength": 1.1,
+        "view_transform": "Raw",
         "sun_tilt": 100.0,
         "sun_pan": 35.0,
         "emission_strength": 1.0,
@@ -100,7 +140,8 @@ RENDER_PROFILES = {
         "cam_fov": 30.0,
         "cam_tilt": 135.0,
         "cam_pan": 25.0,
-        "cam_distance": None,
+        "cam_distance": 1740.0,
+        "camera_framing": "sprite",
         "light_quality": "medium",
         "hero_light": False,
     },
@@ -133,12 +174,12 @@ RENDER_DEFAULTS = {
     "light_model": "darkorbit",   # darkorbit LightSettings tilt/pan, or blender
     "use_hdri": False,
     "world_hdri": "studio.exr",   # bundled Blender studio light (when use_hdri)
-    "world_strength": 0.5,         # map ambient=0.5 (Blender strength approximation)
+    "world_strength": 0.5,         # background strength (not material ambient)
     "world_color": "#ff855c",     # map ambientColor=0xFF855C
-    "ambient_strength": 0.5,       # material fill; DarkOrbit profile overrides this approximation
+    "ambient_strength": 0.5,       # Away3D ambient scalar
     "ambient_color": "#ffffff",    # material fill color; profile-specific
 
-    "sun_energy": 0.8,             # map diffuse=0.8 (Blender energy approximation)
+    "sun_energy": 0.8,             # Away3D diffuse scalar in darkorbit mode
     "sun_color": "#a3ffff",       # map color=0xA3FFFF
     "specular_strength": 1.1,     # map specular=1.1 (Away3D highlight multiplier)
     "sun_angle": [50.0, 0.0, 40.0],   # degrees, XYZ euler
@@ -146,7 +187,7 @@ RENDER_DEFAULTS = {
     "sun_pan": 35.0,           # DarkOrbit Settings3D.sunLight.directionPan
     "light_quality": "medium", # low: no sun; medium: sun; high: sun + hero point
     "hero_light": False,       # optional high-quality hero-position point light
-    "hero_light_color": "#2e7aff",
+    "hero_light_color": "#2e7dff",
     "hero_light_energy": 0.6,
     "hero_light_radius": 450.0,
     "emission_strength": 1.0,  # GlowMethod shaderParams.glow default
@@ -156,7 +197,12 @@ RENDER_DEFAULTS = {
     "cam_tilt": 135.0,         # DarkOrbit Observer3D.start_cameraTilt
     "cam_pan": 25.0,           # CameraManager3D.START_PAN on 3D maps
     "cam_distance": None,      # None = fit object; set 1740 for raw Observer3D distance
-    "start_angle": 90.0,       # turntable rotation at frame 0 (front faces screen right)
+    "camera_framing": "sprite", # crop projection at fixed distance; native = full game FOV
+    "cam_zoom": 1.0,
+    "effect_time": 2.0,         # seconds after activation, avoids an empty first frame
+    "effect_fps": 30.0,
+    "design_particles": True,
+    "start_angle": 90.0,        # reflected Ship3D rotationY = heading - 90
     "cam_ortho": False,        # MapView3D uses PerspectiveLens, not ortho
     "cam_fov": 30.0,           # PerspectiveLens(30)
     "cam_margin": 1.15,        # frame padding factor (>1 zooms out)

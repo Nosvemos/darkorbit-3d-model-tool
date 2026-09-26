@@ -107,6 +107,7 @@ def api_convert(body, progress=None, control=None):
     glb = pipeline.convert(name, gltf=bool(body.get("gltf")),
                            obj=bool(body.get("obj")), run=bool(body.get("run", True)), fx=fx,
                            textures=body.get("textures") or None,
+                           design=body.get("design") or None,
                            clip=body.get("clip") or None,
                            overlay=body.get("overlay") or None,
                            output_name=export_name,
@@ -118,6 +119,7 @@ def api_convert(body, progress=None, control=None):
                          f"{export_name}.scene.json")
     return {"ok": True,
             "glb": _rel_url(glb) if os.path.exists(glb) else None,
+            "blend": _rel_url(glb[:-4] + ".blend") if os.path.exists(glb[:-4] + ".blend") else None,
             "scene": _rel_url(scene) if os.path.exists(scene) else None}
 
 
@@ -138,6 +140,7 @@ def api_render(body, progress=None, control=None):
             if key in _PROFILE_OVERRIDE_KEYS and value is not None:
                 ov[key] = value
     sprites = render_mod.render(name, ov, fx=fx, textures=body.get("textures") or None,
+                                design=body.get("design") or None,
                                 clip=body.get("clip") or None,
                                 overlay=body.get("overlay") or None,
                                 output_name=export_name, progress=progress,
@@ -149,7 +152,8 @@ def api_render(body, progress=None, control=None):
     glb = os.path.join(config.model_dir(export_name, base), f"{export_name}.glb")
     return {"ok": True, "frames": _frame_urls(sprites, export_name),
             "coords": _rel_url(coords) if os.path.exists(coords) else None,
-            "glb": _rel_url(glb) if os.path.exists(glb) else None}
+            "glb": _rel_url(glb) if os.path.exists(glb) else None,
+            "blend": _rel_url(glb[:-4] + ".blend") if os.path.exists(glb[:-4] + ".blend") else None}
 
 
 def api_fx(body, progress=None, control=None):

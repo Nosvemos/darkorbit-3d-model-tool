@@ -295,7 +295,7 @@ def _rotate_xyz(vector, eulers):
     return x, y, z
 
 
-def _state(p: Particle, layer, inst, t):
+def _state(p: Particle, layer, inst, t, depth=False):
     inst_pos, inst_scale, inst_rot, play, time_offset = inst
     age = t * play + time_offset - p.start
     time_node = layer.nodes.get(T_TIME, {})
@@ -315,12 +315,14 @@ def _state(p: Particle, layer, inst, t):
 
     x = inst_pos[0] + p.pos[0] + p.vel[0] * age + 0.5 * p.acc[0] * age * age
     y = inst_pos[1] + p.pos[1] + p.vel[1] * age + 0.5 * p.acc[1] * age * age
+    z = inst_pos[2] + p.pos[2] + p.vel[2] * age + 0.5 * p.acc[2] * age * age
     if p.bezier_control and p.bezier_end:
         u = life
         control_weight = 2.0 * u * (1.0 - u)
         end_weight = u * u
         x += control_weight * p.bezier_control[0] + end_weight * p.bezier_end[0]
         y += control_weight * p.bezier_control[1] + end_weight * p.bezier_end[1]
+        z += control_weight * p.bezier_control[2] + end_weight * p.bezier_end[2]
     if p.orbit_uses_cycle:
         th = TWO_PI * age / p.orbit_cycle + p.orbit_phase if p.orbit_cycle > 0.0 else 0.0
     else:
@@ -331,10 +333,12 @@ def _state(p: Particle, layer, inst, t):
         orbit = _rotate_xyz(orbit, p.orbit_eulers)
     x += orbit[0]
     y += orbit[1]
+    z += orbit[2]
     if p.osc_cycle > 0.0:
         sn = math.sin(TWO_PI * age / p.osc_cycle)
         x += p.osc[0] * sn
         y += p.osc[1] * sn
+        z += p.osc[2] * sn
     s = p.scale_min + (p.scale_max - p.scale_min) * life
     if p.scale_cycle > 0.0:
         midpoint = (p.scale_min + p.scale_max) / 2.0
@@ -396,8 +400,9 @@ def _state(p: Particle, layer, inst, t):
     uvd = layer.nodes.get(T_UV)
     if uvd and p.uv_cycle > 0.0:
         uv = (uvd.get("axis", "x"), math.sin(TWO_PI * age / p.uv_cycle), p.uv_scale)
-    return (x, y, scale_x * inst_scale[0], scale_y * inst_scale[1],
-            tuple(color), angle, life, age, uv)
+    state = (x, y, scale_x * inst_scale[0], scale_y * inst_scale[1],
+             tuple(color), angle, life, age, uv)
+    return (*state, z) if depth else state
 
 
 def _apply_uv_transform(image, axis, offset, uv_scale, repeat):

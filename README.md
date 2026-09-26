@@ -55,6 +55,8 @@ do3d info sibelon                    # inspect objects, points, clips, textures
 do3d convert sibelon --gltf --obj    # AWD/ATF -> glb (+ gltf, obj)
 do3d convert sibelon --output-name boss_ship
 do3d render sibelon --frames 32      # turntable sprite sequence + Coords.json
+do3d render pet-15 --design pet-frozen --frames 1  # PET Frozen appearance preview
+do3d convert pet-15 --design pet-inferno --gltf   # PET Inferno model export
 do3d fx explosion0                   # particle effect -> sprite frames
 do3d ui                              # local web UI
 do3d render goliath --queue --frames 32   # add to the standalone CLI queue
@@ -93,6 +95,7 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--overlay NAME`| Overlay another mesh (AWD) on top of the main model.              |
 | `--clip NAME` | Include only one animation clip in the model.                     |
 | `--texture CHANNEL=NAME` | Override an ATF texture channel; repeat for more channels. |
+| `--design NAME` | Apply `pet-frozen` or `pet-inferno` to a PET level mesh. Uses `pet-15` geometry, shared PET ATF maps, and the reference Stage3D material in a packed Blender scene. |
 | `--output-name NAME` | Use a custom basename for exported files (a recognized file extension is stripped). Alias: `--export-name`. |
 | `--queue`      | Submit this conversion to the standalone CLI queue.                |
 | `--follow`     | With `--queue`, stream status until this job finishes.              |
@@ -130,7 +133,7 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--resolution PX`       | 256              | Square render resolution.                |
 | `--samples N`           | 96               | EEVEE render samples.                    |
 | `--engine NAME`         | `BLENDER_EEVEE`  | Render engine.                           |
-| `--view-transform NAME` | `Standard`       | Colour management (`Standard`/`AgX`/`Filmic`). |
+| `--view-transform NAME` | `Raw` (`darkorbit`) | Colour management (`Raw`/`Standard`/`AgX`/`Filmic`). |
 | `--no-crop`             | off              | Disable the global stable crop.          |
 | `--no-transparent`      | off              | Render on an opaque background.          |
 | `--origin MODE`         | `TOP_LEFT`       | Coordinate origin (`TOP_LEFT`/`BOTTOM_LEFT`). |
@@ -144,14 +147,14 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--hdri FILE`        | `studio.exr`  | Bundled world HDRI; also enables HDRI.   |
 | `--use-hdri` / `--no-hdri` | off in `darkorbit` | Toggle Blender HDRI world lighting. |
 | `--world-strength F` | 0.5           | World/background strength; does not control ship-material fill. |
-| `--ambient-strength F` | 0.2 (`darkorbit`) | Material ambient-fill strength, separate from world background. |
-| `--sun-energy F`     | 0.4 (`darkorbit`) | Tuned Blender direct-light energy; Away3D diffuse uses different units. |
+| `--ambient-strength F` | 0.5 (`darkorbit`) | Material ambient-fill strength, separate from world background. |
+| `--sun-energy F`     | 0.8 (`darkorbit`) | Source map diffuse multiplier. |
 | `--emission F`       | 1.0           | Glow/emission map multiplier.            |
 | `--camera-model NAME`| `darkorbit`   | `darkorbit` Observer3D tilt/pan or `orbit`. |
 | `--cam-tilt D`       | 135           | DarkOrbit Observer3D camera tilt.        |
 | `--cam-pan D`        | 25            | DarkOrbit 3D map camera pan.             |
 | `--fov D`            | 30            | Perspective field of view.               |
-| `--cam-distance D`   | fit object    | Fixed camera distance; use 1740 for raw Observer3D distance. |
+| `--cam-distance D`   | 1740 (`darkorbit`) | Observer3D reference distance, before zoom. |
 | `--elevation D`      | 55            | Orbit-model camera elevation.            |
 | `--azimuth D`        | -90           | Orbit-model camera azimuth around Z.     |
 | `--persp` / `--ortho`| perspective   | Force camera projection.                 |
@@ -163,9 +166,10 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--margin F`         | 1.15          | Framing padding factor (> 1 zooms out).  |
 | `--sun-color HEX`    | `#a3ffff`     | DarkOrbit default 3D map light color.     |
 | `--world-color HEX`  | `#ff855c`     | DarkOrbit map/world color from `maps-config.xml`. |
-| `--ambient-color HEX` | `#aed3ff` (`darkorbit`) | Material fill color; tuned to preserve the source diffuse palette. |
+| `--ambient-color HEX` | `#ff855c` (`darkorbit`) | Source map ambient colour. |
 | `--overlay NAME`     | —             | Overlay another mesh (AWD) on top of the main model. |
 | `--texture CHANNEL=NAME` | —          | Override an ATF channel; repeat for more than one. |
+| `--design NAME` | —          | Apply `pet-frozen` or `pet-inferno` to a PET level mesh; uses `pet-15` geometry and the reference Stage3D material in a packed Blender scene. |
 
 Bundled HDRIs: `studio` · `city` · `courtyard` · `forest` · `interior` · `night`
 · `sunrise` · `sunset`. Select one with `--hdri <name>.exr` or use `--use-hdri`
@@ -187,6 +191,26 @@ All defaults live in `RENDER_DEFAULTS`
 `convert`, `render`, and `fx` also accept `--queue` to submit work to the
 standalone CLI queue. Add `--follow` to stay attached to that job. Without
 `--queue`, these commands keep their direct, synchronous CLI behavior.
+
+PET Frozen/Inferno use `pet-15` and the shared PET ATFs. Rendering now uses
+material equations extracted from the bundled `main.swf`, including rim MIX,
+outline geometry and the original AWP particle layers with XYZ depth.
+Normal PET levels also resolve their shared `pet` texture set automatically.
+No ordinary PET Legend recipe exists in the inspected client; the Legend PET
+entries belong to other meshes and are deliberately not substituted.
+
+`convert` and `render` also write a packed **`.blend`** with the camera and source
+material nodes. The `.blend` contains the selected particle-time snapshot;
+rendering a sequence samples the effects per frame. Portable GLB/glTF/OBJ retain
+the base model/material, and do not carry the custom shader or particle system.
+
+The default DarkOrbit profile uses map **1-1** light values, a 1740-unit camera
+distance and a cropped sprite projection. `--camera-framing native` retains the
+full 30-degree game field of view. `--cam-zoom`, `--effect-time` and `--effect-fps`
+control game zoom and particle sampling. The default Raw colour transform is
+intentional: Stage3D shader RGB must not receive another sRGB/AgX transform.
+See [the source audit](docs/06_darkorbit_profile_reference.md) for equations,
+reproduction commands and remaining differences from a live game scene.
 
 ```bash
 do3d queue serve                  # run this in a separate terminal

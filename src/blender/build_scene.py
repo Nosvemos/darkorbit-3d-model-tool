@@ -20,9 +20,11 @@ import bpy
 from mathutils import Matrix
 
 POINT_PREFIXES = ("engine_", "laserpoint_", "light_position")
-# Away3D is Y-up/left-handed; rotate +90deg about X so the model sits Z-up in
-# Blender. glTF export then converts back to its own Y-up convention.
-AXIS_CONV = Matrix.Rotation(math.radians(90.0), 4, "X")
+# Away3D camera looks along +Z, Blender along -Z. The reflection (x,z,y)
+# preserves screen-right, unlike a rotation alone. Negative object transforms
+# are retained by glTF, including the corresponding front-face convention.
+AXIS_CONV = Matrix(((1, 0, 0, 0), (0, 0, 1, 0),
+                    (0, 1, 0, 0), (0, 0, 0, 1)))
 
 
 def argv_after_dashes():
@@ -133,7 +135,7 @@ def load_image(path, non_color=False):
     return img
 
 
-def build_material(name, textures):
+def build_material(name, textures, appearance=None):
     mat = bpy.data.materials.new(name)
     mat.use_backface_culling = False
     if mat.node_tree is None:             # use_nodes deprecated in Blender 6.0
@@ -142,7 +144,6 @@ def build_material(name, textures):
     nt.nodes.clear()
     out = nt.nodes.new("ShaderNodeOutputMaterial")
     bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
-    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
 
     def input_any(node, names):
         for input_name in names:
@@ -244,15 +245,16 @@ def build_material(name, textures):
                 nt.links.new(specular_roughness, roughness_input)
 
     glow = tex(textures.get("glow"), y=-300)
+    emission_color_source = None
     if glow:
         emission_color = input_any(bsdf, ["Emission Color"])
         emission_strength = input_any(bsdf, ["Emission Strength"])
         if emission_color is not None:
-            nt.links.new(glow.outputs["Color"], emission_color)
+            emission_color_source = glow.outputs["Color"]
         if emission_strength is not None:
             emission_strength.default_value = 1.0
     elif gal and "Emission Color" in bsdf.inputs:
-        nt.links.new(gal.outputs["Color"], bsdf.inputs["Emission Color"])
+        emission_color_source = gal.outputs["Color"]
         if "Emission Strength" in bsdf.inputs:
             bsdf.inputs["Emission Strength"].default_value = 1.0
 
@@ -260,12 +262,14 @@ def build_material(name, textures):
     alpha_input = input_any(bsdf, ["Alpha"])
     alpha_source = None
     if alpha:
-        alpha_source = alpha.outputs["Alpha"] if "Alpha" in alpha.outputs else alpha.outputs["Color"]
+        mask_channels = separate_rgb(alpha.outputs['Color'])
+        alpha_source = sep_out(mask_channels, ['Red', 'R'])
     elif gal_sep:
         alpha_source = sep_out(gal_sep, ["Green", "G"])
     if alpha_source is not None and alpha_input is not None:
         nt.links.new(alpha_source, alpha_input)
-        mat.blend_method = "BLEND"
+        if hasattr(mat, "surface_render_method"):
+            mat.surface_render_method = "DITHERED"
         if hasattr(mat, "show_transparent_back"):
             mat.show_transparent_back = True
 
@@ -275,6 +279,13 @@ def build_material(name, textures):
         nmap.location = (-300, -600)
         nt.links.new(normal.outputs["Color"], nmap.inputs["Color"])
         nt.links.new(nmap.outputs["Normal"], bsdf.inputs["Normal"])
+
+    # Portable glTF keeps the ordinary material; the render scene reconstructs
+    # Stage3D equations from source textures and stores them in a packed .blend.
+    if emission_color_source is not None:
+        nt.links.new(emission_color_source, bsdf.inputs["Emission Color"])
+
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
     return mat
 
 
@@ -312,10 +323,12 @@ def main():
     bpy.context.scene.name = export_name
 
     meshes, points = [], []
+    appearance = scene.get("appearance") or {}
     for obj in scene["objects"]:
         ob = build_mesh(obj)
         if obj.get("textures"):
-            ob.data.materials.append(build_material(ob.name + "_mat", obj["textures"]))
+            ob.data.materials.append(build_material(
+                ob.name + "_mat", obj["textures"], appearance))
         (points if obj["name"].startswith(POINT_PREFIXES) else meshes).append(ob)
 
     # main body = largest mesh; points become empties parented to it

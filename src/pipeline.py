@@ -31,6 +31,11 @@ from src.awd import parse_file
 
 def _find_texture(textures_dir: str, mesh_name: str, channel: str) -> str | None:
     """Locate a channel ATF, preferring higher resolution (512 > 256 > 128 > none)."""
+    # ships.xml abstract_petbasic / abstract_wildpet: all ordinary levels use
+    # texture="pet" independently of their pet-1 ... pet-15 geometry.
+    level = mesh_name.lower().removeprefix('pet-')
+    if mesh_name.lower().startswith('pet-') and level.isdigit() and 1 <= int(level) <= 15:
+        mesh_name = 'pet'
     for suffix in ("_512", "_256", "_128", ""):
         atf = os.path.join(textures_dir, f"{mesh_name}_{channel}{suffix}.atf")
         if os.path.exists(atf):
@@ -46,6 +51,36 @@ def _resolve_atf(spec: str, dirs: list[str]) -> str | None:
         if os.path.exists(p):
             return p
     return None
+
+
+def resolve_design(mesh_name: str, design: str | None) -> str | None:
+    """Validate and normalize a supported DarkOrbit design preset."""
+    if design in (None, ""):
+        return None
+    key = str(design).strip().lower()
+    if key not in config.PET_DESIGNS:
+        choices = ", ".join(sorted(config.PET_DESIGNS))
+        raise ValueError(f"unknown design '{design}' (choose {choices})")
+    pet_level = mesh_name.lower().removeprefix("pet-")
+    if not mesh_name.lower().startswith("pet-") or not pet_level.isdigit() or not 1 <= int(pet_level) <= 15:
+        raise ValueError(
+            f"design '{key}' requires a PET level mesh ('pet-1' through 'pet-15')")
+    return key
+
+
+def _design_geometry(mesh_name: str, design: str | None) -> str:
+    key = resolve_design(mesh_name, design)
+    if key:
+        return config.PET_DESIGNS[key]["geometry"]
+    return mesh_name
+
+
+def _design_texture_overrides(mesh_name: str, design: str | None,
+                              textures: dict | None) -> dict | None:
+    key = resolve_design(mesh_name, design)
+    defaults = dict(config.PET_DESIGNS[key]["textures"]) if key else {}
+    defaults.update(textures or {})
+    return defaults or None
 
 
 def _input_file_state(path: str | None) -> dict | None:
@@ -67,6 +102,8 @@ def _texture_input_states(mesh_name: str, textures_dir: str,
     for channel in config.CHANNELS:
         atf = _resolve_atf(overrides[channel], search) if overrides.get(channel) \
             else _find_texture(textures_dir, mesh_name, channel)
+        if overrides.get(channel) and not atf:
+            raise ValueError(f"Missing {channel} ATF: {overrides[channel]}")
         if atf:
             found[channel] = _input_file_state(atf)
     if not found and not overrides:
@@ -131,8 +168,8 @@ def decode_textures(mesh_name: str, textures_dir: str, model_out: str,
             try:
                 atf_to_png(atf, png)
                 found[channel] = png
-            except Exception:
-                pass
+            except Exception as exc:
+                raise RuntimeError(f"Cannot decode {channel} texture {atf}") from exc
     if found.get("specular"):
         found["specular_pbr"] = _pack_away3d_specular(found["specular"])
     # fx meshes have no channel convention; fall back to a single <mesh>.atf
@@ -151,11 +188,16 @@ def decode_textures(mesh_name: str, textures_dir: str, model_out: str,
 def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
                      model_out: str, work: str, textures: dict | None = None,
                      clip: str | None = None, overlay: str | None = None,
-                     output_name: str | None = None, hide_objects: list[str] | None = None) -> str:
+                     output_name: str | None = None, hide_objects: list[str] | None = None,
+                     design: str | None = None) -> str:
     """Parse the AWD and write the intermediate scene JSON. Returns its path."""
+    design = resolve_design(mesh_name, design)
+    textures = _design_texture_overrides(mesh_name, design, textures)
+    geometry_mesh = _design_geometry(mesh_name, design)
     export_name = config.safe_output_name(output_name, mesh_name)
-    scene = parse_file(os.path.join(meshes_dir, f"{mesh_name}.awd"))
-    main_textures = decode_textures(mesh_name, textures_dir, model_out, overrides=textures)
+    scene = parse_file(os.path.join(meshes_dir, f"{geometry_mesh}.awd"))
+    main_textures = decode_textures(geometry_mesh, textures_dir, model_out,
+                                   overrides=textures)
 
     objects = []
 
@@ -164,7 +206,9 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
             return False
         return any(h in name for h in hide_objects if h)
 
-    def add_scene_objects(sc, texs):
+    used_names = set()
+
+    def add_scene_objects(sc, texs, is_overlay=False):
         for inst in sc.instances:
             geo = sc.geometry_for(inst)
             if not geo or not geo.subs:
@@ -192,8 +236,15 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
                 frames = [fr for fr in c.frames if len(fr) == len(positions)]
                 if frames:
                     clips_out.append({"name": c.name, "frames": frames})
+            object_name = inst.name
+            suffix = 1
+            while object_name in used_names:
+                object_name = f'{inst.name}.{suffix:03d}'
+                suffix += 1
+            used_names.add(object_name)
             objects.append({
-                "name": inst.name,
+                "name": object_name,
+                "overlay": is_overlay,
                 "matrix": _matrix16(inst),
                 "positions": positions,
                 "indices": indices,
@@ -212,9 +263,17 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
     if overlay:
         overlay_scene = parse_file(os.path.join(meshes_dir, f"{overlay}.awd"))
         overlay_textures = decode_textures(overlay, textures_dir, model_out)
-        add_scene_objects(overlay_scene, overlay_textures)
+        add_scene_objects(overlay_scene, overlay_textures, is_overlay=True)
 
-    data = {"name": export_name, "source": mesh_name, "objects": objects}
+    appearance = None
+    if design:
+        preset = config.PET_DESIGNS[design]
+        appearance = {key: preset[key] for key in (
+            "rim_color", "rim_strength", "rim_power", "outline_size")}
+        appearance["visual_size"] = preset["visual_size"]
+    data = {"name": export_name, "source": mesh_name,
+            "geometry_source": geometry_mesh, "design": design,
+            "appearance": appearance, "objects": objects}
     os.makedirs(work, exist_ok=True)
     json_path = os.path.join(work, f"{export_name}.scene.json")
     with open(json_path, "w", encoding="utf-8") as f:
@@ -230,8 +289,14 @@ def _matrix16(inst) -> list[float]:
 def build_inputs(mesh_name: str, fx: bool = False, textures: dict | None = None,
                  clip: str | None = None, overlay: str | None = None,
                  hide_objects: list[str] | None = None,
-                 output_name: str | None = None) -> dict:
+                 output_name: str | None = None,
+                 design: str | None = None) -> dict:
     """Return the normalized inputs that determine a generated GLB."""
+    design = resolve_design(mesh_name, design)
+    if design and fx:
+        raise ValueError("PET design presets cannot be applied to FX meshes")
+    effective_textures = _design_texture_overrides(mesh_name, design, textures)
+    geometry_mesh = _design_geometry(mesh_name, design)
     export_name = config.safe_output_name(output_name, mesh_name)
     meshes_dir = config.FX_DIR if fx else config.MESHES_DIR
     textures_dir = config.FX_DIR if fx else config.TEXTURES_DIR
@@ -246,12 +311,15 @@ def build_inputs(mesh_name: str, fx: bool = False, textures: dict | None = None,
         "export_name": export_name,
         "fx": bool(fx),
         "textures": dict(textures or {}),
+        "design": design,
+        "design_recipe": config.PET_DESIGNS.get(design),
         "clip": clip or None,
         "overlay": overlay or None,
         "hide_objects": list(hide_objects or []),
         "input_files": {
-            "awd": _input_file_state(os.path.join(meshes_dir, f"{mesh_name}.awd")),
-            "textures": _texture_input_states(mesh_name, textures_dir, textures),
+            "awd": _input_file_state(os.path.join(meshes_dir, f"{geometry_mesh}.awd")),
+            "textures": _texture_input_states(geometry_mesh, textures_dir,
+                                               effective_textures),
             "overlay": overlay_files,
         },
     }
@@ -330,10 +398,15 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
             run: bool = True, fx: bool = False, textures: dict | None = None,
             clip: str | None = None, overlay: str | None = None,
             output_name: str | None = None, hide_objects: list[str] | None = None,
-            progress=None, cancel_event=None, process_callback=None) -> str:
+            progress=None, cancel_event=None, process_callback=None,
+            design: str | None = None, save_blend: bool = True) -> str:
     if cancel_event is not None and cancel_event.is_set():
         raise CancelledError("job cancelled")
     export_name = config.safe_output_name(output_name, mesh_name)
+    design = resolve_design(mesh_name, design)
+    if design and fx:
+        raise ValueError("PET design presets cannot be applied to FX meshes")
+    effective_textures = _design_texture_overrides(mesh_name, design, textures)
     meshes_dir = config.FX_DIR if fx else config.MESHES_DIR
     textures_dir = config.FX_DIR if fx else config.TEXTURES_DIR
     out_base = config.FX_OUT if fx else config.OUT_DIR
@@ -341,8 +414,9 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
     work = config.work_dir(export_name, out_base)
     os.makedirs(model, exist_ok=True)
     scene_json = build_scene_json(mesh_name, meshes_dir, textures_dir, model, work,
-                                  textures=textures, clip=clip, overlay=overlay,
-                                  output_name=export_name, hide_objects=hide_objects)
+                                  textures=effective_textures, clip=clip, overlay=overlay,
+                                  output_name=export_name, hide_objects=hide_objects,
+                                  design=design)
     out_glb = os.path.join(model, f"{export_name}.glb")
     if run:
         run_blender(scene_json, out_glb, gltf, obj, progress=progress,
@@ -350,13 +424,32 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
         if not os.path.isfile(out_glb) or os.path.getsize(out_glb) == 0:
             raise RuntimeError(
                 f"Blender finished without creating the expected GLB: {out_glb}")
+        if save_blend:
+            cfg = {**config.RENDER_DEFAULTS, **config.RENDER_PROFILES['darkorbit'],
+                   'frames': 1, 'source_scene': scene_json,
+                   'blend_path': os.path.join(model, f'{export_name}.blend')}
+            def check_cancelled():
+                if cancel_event is not None and cancel_event.is_set():
+                    raise CancelledError('job cancelled')
+            if design:
+                from src.fx.scene import prepare
+                cfg['particle_scene'] = prepare(config.PET_DESIGNS[design]['particles'],
+                                                work, cfg, check_cancelled)
+            cfg_path = os.path.join(work, f'{export_name}_scene_cfg.json')
+            with open(cfg_path, 'w', encoding='utf-8') as f:
+                json.dump(cfg, f)
+            run_cmd([config.BLENDER_EXE, '--background', '--python-exit-code', '1',
+                     '--python', config.RENDER_SCRIPT, '--', out_glb, work,
+                     cfg_path, '--scene-only'], progress, cancel_event=cancel_event,
+                    process_callback=process_callback)
         with open(os.path.join(work, f"{export_name}_build.json"), "w",
                   encoding="utf-8") as f:
             json.dump({"version": config.MODEL_BUILD_VERSION,
                        **build_inputs(mesh_name, fx=fx, textures=textures,
                                       clip=clip, overlay=overlay,
                                       hide_objects=hide_objects,
-                                      output_name=export_name)}, f)
+                                      output_name=export_name,
+                                      design=design)}, f)
     return out_glb
 
 

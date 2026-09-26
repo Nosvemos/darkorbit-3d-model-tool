@@ -60,8 +60,14 @@ def sample3d(node, rng):
     d = node.get("data", {})
     i = node.get("id", "")
     if "Sphere" in i:
-        r = rng.uniform(d.get("innerRadius", 0.0), d.get("outerRadius", 0.0))
-        sx, sy, sz = _unit_sphere(rng)
+        # ThreeDSphereSetter.generateOneValue samples volume, then normalizes
+        # a random cube vector (the shipped implementation, not uniform angle).
+        rng.random()  # unused angle sampled by the AS3 setter
+        inner, outer = d.get("innerRadius", 0.0), d.get("outerRadius", 0.0)
+        r = (rng.random() * (outer ** 3 - inner ** 3) + inner ** 3) ** (1 / 3)
+        direction = tuple(rng.random() - .5 for _ in range(3))
+        length = math.sqrt(sum(x * x for x in direction))
+        sx, sy, sz = tuple(x / length for x in direction) if length else (1, 0, 0)
         return (d.get("centerX", 0) + r * sx,
                 d.get("centerY", 0) + r * sy,
                 d.get("centerZ", 0) + r * sz)

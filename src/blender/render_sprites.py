@@ -39,7 +39,7 @@ def scene_bounds():
     mn = Vector((1e18, 1e18, 1e18))
     mx = -mn
     for o in bpy.context.scene.objects:
-        if o.type != "MESH":
+        if o.type != "MESH" or o.hide_render:
             continue
         for corner in o.bound_box:
             w = o.matrix_world @ Vector(corner)
@@ -56,6 +56,7 @@ def parent_under_root(center):
     root = bpy.data.objects.new("turntable_root", None)
     bpy.context.scene.collection.objects.link(root)
     root.location = center
+    bpy.context.view_layer.update()
     for o in list(bpy.context.scene.objects):
         if o is root or o.parent:
             continue
@@ -71,7 +72,7 @@ def hex_to_rgb(hex_str: str) -> list[float]:
 
 def away_to_blender(v: Vector) -> Vector:
     """Convert an Away3D Y-up vector to the Blender Z-up scene built by us."""
-    return Vector((v.x, -v.z, v.y))
+    return Vector((v.x, v.z, v.y))
 
 
 def darkorbit_light_direction(tilt, pan) -> Vector:
@@ -85,15 +86,9 @@ def darkorbit_light_direction(tilt, pan) -> Vector:
 
 
 def darkorbit_camera_direction(tilt, pan) -> Vector:
-    """Observer3D camera offset direction from lookAt to camera.
-
-    DarkOrbit pan describes the viewing direction. This function positions the
-    camera on the opposite side of its target, so its position azimuth is
-    rotated by 180 degrees. Without that conversion, ship renders look from the
-    engine side (the Goliath's front markers are on AWD +Z).
-    """
+    """Observer3D.validate position minus lookAt; no extra pan rotation."""
     t = math.radians(tilt)
-    p = math.radians(pan + 180.0)
+    p = math.radians(pan)
     away = Vector((math.sin(t) * math.sin(p),
                    -math.cos(t),
                    -math.sin(t) * math.cos(p)))
@@ -189,170 +184,11 @@ def setup_hero_light(cfg, center, radius):
     return light
 
 
-def apply_away3d_lighting(cfg):
-    """Approximate Away3D ambient and specular terms in EEVEE.
-
-    An EEVEE World surface provides a background, not ambient irradiance. The
-    render profile therefore supplies a material-fill color and strength
-    separately from the map/world settings. This is a renderer-specific visual
-    approximation because the client's material shader is not in the dump.
-    The light's specular multiplier is likewise separate from the material map.
-    """
-    if cfg.get("light_model") != "darkorbit":
-        return
-
-    specular_strength = float(cfg.get("specular_strength", 1.0))
-    for mat in bpy.data.materials:
-        if not mat.node_tree or mat.get("darkorbit_specular_lobe"):
-            continue
-        nt = mat.node_tree
-        packed_map = next((node for node in nt.nodes
-                           if node.type == "TEX_IMAGE" and node.image and
-                           "_specular_gltf" in node.image.name.lower()), None)
-        bsdf = next((node for node in nt.nodes
-                     if node.type == "BSDF_PRINCIPLED"), None)
-        output = next((node for node in nt.nodes
-                       if node.type == "OUTPUT_MATERIAL" and node.is_active_output), None)
-        if packed_map is None or bsdf is None or output is None:
-            continue
-
-        # Away3D's BasicSpecularMethod uses map R as a direct Phong highlight
-        # weight. Principled clamps the equivalent dielectric Fresnel response
-        # to about 4%, making DarkOrbit's authored specular maps look almost
-        # matte. Use a separate glossy lobe so the channel retains its strength.
-        glossy = nt.nodes.new("ShaderNodeBsdfGlossy")
-        glossy.name = "Away3D specular lobe"
-        glossy.label = "Away3D BasicSpecularMethod"
-        glossy.location = (260, -400)
-        separate = nt.nodes.new("ShaderNodeSeparateColor")
-        separate.name = "Away3D gloss channel"
-        separate.location = (-280, -420)
-        nt.links.new(packed_map.outputs["Color"], separate.inputs[0])
-        gloss = separate.outputs.get("Green")
-        if gloss is None:
-            gloss = separate.outputs.get("G")
-        if gloss is None:
-            continue
-        nt.links.new(gloss, glossy.inputs["Roughness"])
-
-        strength = nt.nodes.new("ShaderNodeMath")
-        strength.operation = "MULTIPLY"
-        strength.name = "Away3D light specular strength"
-        strength.label = f"Light specular × {specular_strength:g}"
-        # Blender's normalized glossy BSDF carries more energy than Away3D's
-        # empirical Phong term for the same map value. Calibrate the lobe so a
-        # full-strength map stays a highlight instead of washing out the hull.
-        strength.inputs[1].default_value = specular_strength * 0.1
-        nt.links.new(packed_map.outputs["Alpha"], strength.inputs[0])
-
-        try:
-            color = nt.nodes.new("ShaderNodeCombineColor")
-            color_inputs = ("Red", "Green", "Blue")
-        except RuntimeError:
-            color = nt.nodes.new("ShaderNodeCombineRGB")
-            color_inputs = ("R", "G", "B")
-        color.location = (0, -420)
-        for input_name in color_inputs:
-            nt.links.new(strength.outputs[0], color.inputs[input_name])
-        nt.links.new(color.outputs[0], glossy.inputs["Color"])
-
-        spec_input = next((bsdf.inputs[name] for name in
-                           ("Specular IOR Level", "Specular") if name in bsdf.inputs), None)
-        if spec_input is not None:
-            for link in list(spec_input.links):
-                nt.links.remove(link)
-            spec_input.default_value = 0.0
-
-        surface = output.inputs["Surface"]
-        old_surface = surface.links[0].from_socket if surface.is_linked else bsdf.outputs[0]
-        add_specular = nt.nodes.new("ShaderNodeAddShader")
-        add_specular.name = "Away3D diffuse plus specular"
-        add_specular.location = (500, 120)
-        nt.links.new(old_surface, add_specular.inputs[0])
-        nt.links.new(glossy.outputs[0], add_specular.inputs[1])
-        for link in list(surface.links):
-            nt.links.remove(link)
-        nt.links.new(add_specular.outputs[0], surface)
-        mat["darkorbit_specular_lobe"] = True
-
-    ambient_strength = max(0.0, float(cfg.get(
-        "ambient_strength", cfg.get("world_strength", 0.0))))
-    if ambient_strength > 0:
-        ambient_color = hex_to_rgb(cfg.get(
-            "ambient_color", cfg.get("world_color", "#ffffff")))
-        for mat in bpy.data.materials:
-            if not mat.node_tree:
-                continue
-            nt = mat.node_tree
-            if any(node.get("darkorbit_ambient_fill") for node in nt.nodes):
-                continue
-            bsdf = next((node for node in nt.nodes
-                         if node.type == "BSDF_PRINCIPLED"), None)
-            output = next((node for node in nt.nodes
-                           if node.type == "OUTPUT_MATERIAL" and node.is_active_output), None)
-            if bsdf is None or output is None or "Base Color" not in bsdf.inputs:
-                continue
-            surface = output.inputs["Surface"]
-            surface_links = list(surface.links)
-            if not surface_links:
-                continue
-
-            base = bsdf.inputs["Base Color"]
-            albedo = nt.nodes.new("ShaderNodeMixRGB")
-            albedo.name = "DarkOrbit ambient albedo"
-            albedo.label = "Away3D diffuse × ambientColor"
-            albedo.blend_type = "MULTIPLY"
-            albedo.inputs["Fac"].default_value = 1.0
-            albedo.inputs["Color2"].default_value = ambient_color + [1.0]
-            if base.is_linked:
-                nt.links.new(base.links[0].from_socket, albedo.inputs["Color1"])
-            else:
-                albedo.inputs["Color1"].default_value = base.default_value
-
-            fill = nt.nodes.new("ShaderNodeEmission")
-            fill.name = "DarkOrbit ambient fill"
-            fill.label = "Away3D ambient"
-            fill.inputs["Strength"].default_value = ambient_strength
-            nt.links.new(albedo.outputs["Color"], fill.inputs["Color"])
-
-            add = nt.nodes.new("ShaderNodeAddShader")
-            add.name = "DarkOrbit ambient lighting"
-            add.label = "Direct + ambient"
-            nt.links.new(surface_links[0].from_socket, add.inputs[0])
-            nt.links.new(fill.outputs["Emission"], add.inputs[1])
-            nt.links.remove(surface_links[0])
-            nt.links.new(add.outputs[0], surface)
-            fill["darkorbit_ambient_fill"] = True
-
-    for mat in bpy.data.materials:
-        if not mat.node_tree:
-            continue
-        nt = mat.node_tree
-        if mat.get("darkorbit_specular_lobe"):
-            continue
-        for bsdf in (node for node in nt.nodes if node.type == "BSDF_PRINCIPLED"):
-            socket = next((bsdf.inputs[name] for name in
-                           ("Specular IOR Level", "Specular") if name in bsdf.inputs), None)
-            if socket is None:
-                continue
-            if socket.is_linked:
-                link = socket.links[0]
-                source = link.from_socket
-                nt.links.remove(link)
-                scale = nt.nodes.new("ShaderNodeMath")
-                scale.operation = "MULTIPLY"
-                scale.name = "DarkOrbit light specular strength"
-                scale.label = f"Away3D light specular × {specular_strength:g}"
-                nt.links.new(source, scale.inputs[0])
-                scale.inputs[1].default_value = specular_strength
-                nt.links.new(scale.outputs[0], socket)
-            else:
-                socket.default_value = float(socket.default_value) * specular_strength
-
-
 def setup_camera(cfg, center, radius):
     if cfg.get("camera_model") == "darkorbit":
-        direction = darkorbit_camera_direction(cfg.get("cam_tilt", 135.0),
+        zoom = max(1.0, min(3.0, float(cfg.get("cam_zoom", 1))))
+        tilt = cfg.get("cam_tilt", 135.0) - (zoom - 1) * 10
+        direction = darkorbit_camera_direction(tilt,
                                                cfg.get("cam_pan", 25.0))
     else:
         el = math.radians(cfg["cam_elevation"])
@@ -366,6 +202,8 @@ def setup_camera(cfg, center, radius):
     fixed_dist = cfg.get("cam_distance")
     if fixed_dist is not None:
         dist = float(fixed_dist)
+        if cfg.get("camera_model") == "darkorbit":
+            dist /= zoom
     elif cfg["cam_ortho"]:
         dist = radius * 4.0
     else:
@@ -376,12 +214,22 @@ def setup_camera(cfg, center, radius):
     # (buildings) fall outside the default 1000-unit clip and render empty.
     cam_data.clip_start = max(0.01, radius * 0.001)
     cam_data.clip_end = dist + radius * 4.0 + 1.0
+    if cfg.get('camera_model') == 'darkorbit':
+        cam_data.clip_start, cam_data.clip_end = 10.0, 80000.0
+    cam_data.sensor_fit = 'VERTICAL'
     if cfg["cam_ortho"]:
         cam_data.type = "ORTHO"
         cam_data.ortho_scale = radius * 2.0 * cfg["cam_margin"]
     else:
         cam_data.type = "PERSP"
         cam_data.angle = math.radians(cfg["cam_fov"])
+        if fixed_dist is not None and cfg.get("camera_framing") == "sprite":
+            # Crop/enlarge the projection rather than dollying toward the mesh.
+            # Perspective foreshortening and view-dependent rim stay at the
+            # original Observer3D distance. Native retains the full game FOV.
+            cam_data.angle = 2 * math.asin(min(.99, radius * cfg['cam_margin'] / dist))
+        cam_data['reference_fov'] = cfg['cam_fov']
+        cam_data['reference_distance'] = dist
     bpy.context.scene.camera = cam
     return cam
 
@@ -471,16 +319,44 @@ def main():
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=glb)
-    apply_away3d_lighting(cfg)
+    sys.path.insert(0, os.path.dirname(__file__))
+    if cfg.get("light_model") == "darkorbit":
+        import away_material
+        with open(cfg["source_scene"], encoding="utf-8") as f:
+            away_material.apply(json.load(f), cfg)
+    else:
+        apply_emission(cfg.get("emission_strength"))
 
-    center, radius, _, _ = scene_bounds()
+    center, radius, mn, mx = scene_bounds()
+    if cfg.get('camera_model') == 'darkorbit':
+        # The client rotates around the entity origin, not the mesh bounds.
+        radius = max(Vector((x, y, z)).length for x in (mn.x, mx.x)
+                     for y in (mn.y, mx.y) for z in (mn.z, mx.z))
+        center = Vector((0, 0, 0))
     root = parent_under_root(center)
     setup_world(cfg)
-    setup_sun(cfg)
-    cam = setup_camera(cfg, center, radius)
-    setup_hero_light(cfg, center, radius)
+    if cfg.get('light_model') != 'darkorbit':
+        setup_sun(cfg)
+    frame_radius = radius
+    if cfg.get('particle_scene'):
+        with open(cfg['particle_scene'], encoding='utf-8') as f:
+            for layer in json.load(f):
+                scale = layer['scale']
+                for row in layer['samples']:
+                    for p in row:
+                        if p:
+                            pos = Vector([p['position'][i] * scale[i] + layer['position'][i] for i in range(3)])
+                            extent = math.hypot(p['size'][0] * scale[0], p['size'][1] * scale[1]) / 2
+                            frame_radius = max(frame_radius, pos.length + extent)
+    cam = setup_camera(cfg, center, frame_radius)
+    if cfg.get('light_model') != 'darkorbit':
+        setup_hero_light(cfg, center, radius)
     setup_render(cfg)
     sc = bpy.context.scene
+    particles = None
+    if cfg.get("particle_scene"):
+        import away_particles
+        particles = away_particles.Scene(cfg["particle_scene"], root, cam)
     res = cfg["resolution"]
 
     hide_list = cfg.get("hide_objects") or []
@@ -501,7 +377,6 @@ def main():
     coords = {p.name: [] for p in points}
     frame_paths = []
 
-    apply_emission(cfg.get("emission_strength"))
     solo_first_clip()
     anim_end = animation_end()   # >1 if the glb carries a vertex (morph) animation
 
@@ -517,10 +392,11 @@ def main():
         step = cfg.get("total_degrees", 360.0) / max(frames, 1)
     frame_start = cfg.get("frame_start", 1)
     rotation_enabled = cfg.get("rotation", True)
+    rotation_sign = -1 if cfg.get('camera_model') == 'darkorbit' else 1
 
     for f in range(frames):
         if rotation_enabled:
-            root.rotation_euler.z = math.radians(start + f * step)
+            root.rotation_euler.z = math.radians(start + rotation_sign * f * step)
         else:
             root.rotation_euler.z = math.radians(start)
 
@@ -529,6 +405,14 @@ def main():
             af = astart + (aend - astart) * (f / max(frames - 1, 1))
             sc.frame_set(int(af), subframe=af - int(af))
         bpy.context.view_layer.update()
+        if particles:
+            particles.update(f)
+        if f == 0 and cfg.get("blend_path"):
+            bpy.context.preferences.filepaths.save_version = 0
+            bpy.ops.file.pack_all()
+            bpy.ops.wm.save_as_mainfile(filepath=cfg["blend_path"])
+        if '--scene-only' in a:
+            return
         fname = f"{name}_{frame_start + f}.png"
         path = os.path.join(out_dir, fname)
         sc.render.filepath = path

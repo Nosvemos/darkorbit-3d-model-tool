@@ -61,6 +61,18 @@ def _texture_overrides(args) -> dict[str, str] | None:
     return textures or None
 
 
+def _design_from_args(args) -> str | None:
+    design = getattr(args, "design", None) or None
+    mesh = (getattr(args, "mesh", None) or "").lower()
+    level = mesh.removeprefix("pet-")
+    is_pet_level = mesh.startswith('pet-') and level.isdigit() and 1 <= int(level) <= 15
+    if design and (getattr(args, "fx", False) or getattr(args, "all", False) or
+                   not is_pet_level):
+        raise SystemExit(
+            f"error: --design {design} requires one PET mesh ('pet-1' through 'pet-15')")
+    return design
+
+
 def _server_url(args) -> str:
     return getattr(args, "queue_server", DEFAULT_SERVER_URL)
 
@@ -181,6 +193,7 @@ def cmd_convert(args):
     _reject_bulk_custom_name(args)
     hide = [h.strip() for h in args.hide_objects.split(",") if h.strip()] if getattr(args, "hide_objects", None) else None
     textures = _texture_overrides(args)
+    design = _design_from_args(args)
     submitted = []
     for name in _resolve_meshes(args):
         print(f"=== convert {name} ===")
@@ -188,6 +201,7 @@ def cmd_convert(args):
             body = {"name": name, "fx": args.fx, "gltf": args.gltf,
                     "obj": args.obj, "run": not args.no_blender,
                     "textures": textures, "clip": args.clip or None,
+                    "design": design,
                     "overlay": args.overlay or None,
                     "output_name": args.output_name or None,
                     "hide_objects": hide}
@@ -196,6 +210,7 @@ def cmd_convert(args):
         out = pipeline.convert(name, gltf=args.gltf, obj=args.obj,
                                run=not args.no_blender, fx=args.fx,
                                textures=textures, clip=args.clip or None,
+                               design=design,
                                overlay=args.overlay or None,
                                output_name=args.output_name or None,
                                hide_objects=hide)
@@ -208,6 +223,7 @@ def cmd_render(args):
     _reject_bulk_custom_name(args)
     ov = render_mod.overrides_from_args(args)
     textures = _texture_overrides(args)
+    design = _design_from_args(args)
     submitted = []
     for name in _resolve_meshes(args):
         print(f"=== render {name} ===")
@@ -216,6 +232,7 @@ def cmd_render(args):
                             for key in profile}
             body = {**ov, "name": name, "fx": args.fx,
                     "textures": textures, "clip": args.clip or None,
+                    "design": design,
                     "overlay": args.overlay or None,
                     "output_name": args.output_name or None,
                     "profile_overrides": {key: value for key, value in ov.items()
@@ -224,6 +241,7 @@ def cmd_render(args):
             continue
         out = render_mod.render(name, ov, fx=args.fx, clip=args.clip or None,
                                 textures=textures,
+                                design=design,
                                 overlay=args.overlay or None,
                                 output_name=args.output_name or None)
         print(f"  -> {out}")
@@ -401,6 +419,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--clip", help="select a single animation clip")
     c.add_argument("--texture", dest="textures", action="append", metavar="CHANNEL=NAME",
                    help="override an ATF texture channel; may be repeated")
+    c.add_argument("--design", choices=sorted(config.PET_DESIGNS),
+                   help="apply a DarkOrbit PET design preset (requires pet-1 through pet-15)")
     c.add_argument("--output-name", "--export-name", dest="output_name",
                    help="basename for exported files (default: mesh name)")
     c.add_argument("--hide", "--hide-objects", dest="hide_objects",
@@ -417,6 +437,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="basename for exported glb/sprite files (default: mesh name)")
     r.add_argument("--texture", dest="textures", action="append", metavar="CHANNEL=NAME",
                    help="override an ATF texture channel; may be repeated")
+    r.add_argument("--design", choices=sorted(config.PET_DESIGNS),
+                   help="apply a DarkOrbit PET design preset (requires pet-1 through pet-15)")
     render_mod.add_render_args(r)
     _add_queue_submission_options(r)
     r.set_defaults(func=cmd_render)

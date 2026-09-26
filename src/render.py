@@ -27,7 +27,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import config
-from src.pipeline import build_inputs, convert, run_cmd
+from src.pipeline import build_inputs, convert, resolve_design, run_cmd
 
 
 def _clamp(v, lo, hi):
@@ -92,7 +92,7 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
            textures: dict | None = None, clip: str | None = None,
            overlay: str | None = None, output_name: str | None = None,
            progress=None, cancel_event=None, process_callback=None,
-           cancel_check=None) -> str:
+           cancel_check=None, design: str | None = None) -> str:
     def check_cancelled():
         if cancel_check:
             cancel_check()
@@ -100,6 +100,7 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
             raise CancelledError("job cancelled")
 
     check_cancelled()
+    design = resolve_design(mesh_name, design)
     export_name = config.safe_output_name(output_name, mesh_name)
     base = config.FX_OUT if fx else config.OUT_DIR
     glb = os.path.join(config.model_dir(export_name, base), f"{export_name}.glb")
@@ -115,7 +116,7 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
     hide_objs = overrides.get("hide_objects")
     expected_build = build_inputs(
         mesh_name, fx=fx, textures=textures, clip=clip, overlay=overlay,
-        hide_objects=hide_objs, output_name=export_name)
+        hide_objects=hide_objs, output_name=export_name, design=design)
     build_matches = (built.get("version") == config.MODEL_BUILD_VERSION and
                      all(built.get(key) == value
                          for key, value in expected_build.items()))
@@ -127,7 +128,9 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
         if progress:
             progress("building glb…")
         convert(mesh_name, fx=fx, textures=textures, clip=clip, overlay=overlay,
-                output_name=export_name, hide_objects=hide_objs, progress=progress,
+                output_name=export_name, hide_objects=hide_objs, design=design,
+                save_blend=False,
+                progress=progress,
                 cancel_event=cancel_event, process_callback=process_callback)
 
     check_cancelled()
@@ -147,6 +150,16 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
     if quality in config.QUALITY_PRESETS:
         cfg.update(config.QUALITY_PRESETS[quality])
     cfg.update(overrides)
+    if design:
+        preset = config.PET_DESIGNS[design]
+        cfg["appearance"] = {key: preset[key] for key in (
+            "rim_color", "rim_strength", "rim_power", "outline_size")}
+    cfg["source_scene"] = os.path.join(work, f"{export_name}.scene.json")
+    cfg["blend_path"] = os.path.join(config.model_dir(export_name, base), f"{export_name}.blend")
+    if design and cfg.get("design_particles", True):
+        from src.fx.scene import prepare
+        cfg["particle_scene"] = prepare(config.PET_DESIGNS[design]["particles"], work,
+                                        cfg, check_cancelled)
     cfg_path = os.path.join(work, f"{export_name}_render_cfg.json")
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f)
@@ -244,6 +257,8 @@ _FLAG_TO_KEY = {
     "quality": "quality",
     "hide_objects": "hide_objects",
     "crop_align": "crop_align",
+    "effect_time": "effect_time", "effect_fps": "effect_fps",
+    "cam_zoom": "cam_zoom", "camera_framing": "camera_framing",
 }
 
 
@@ -251,6 +266,11 @@ def add_render_args(ap):
     """Attach the render flags to a parser (shared by `render` and the CLI)."""
     ap.add_argument("--profile", choices=sorted(config.RENDER_PROFILES),
                     help="visual profile (default: darkorbit)")
+    ap.add_argument('--effect-time', type=float, help='PET effect start time in seconds (default 2)')
+    ap.add_argument('--effect-fps', type=float, help='PET effect sampling rate (default 30)')
+    ap.add_argument('--cam-zoom', type=float, help='Observer3D zoom, 1 through 3')
+    ap.add_argument('--camera-framing', choices=['sprite', 'native'],
+                    help='sprite: enlarge a crop at game distance; native: full game FOV')
     ap.add_argument("--mode", choices=["auto", "ship", "item"],
                     help="ship: track points + Coords.json; item: plain render, "
                          "no points; auto: ship if points exist (default)")
