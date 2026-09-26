@@ -330,10 +330,19 @@ def main():
 
     center, radius, mn, mx = scene_bounds()
     if cfg.get('camera_model') == 'darkorbit':
-        # The client rotates around the entity origin, not the mesh bounds.
-        radius = max(Vector((x, y, z)).length for x in (mn.x, mx.x)
-                     for y in (mn.y, mx.y) for z in (mn.z, mx.z))
-        center = Vector((0, 0, 0))
+        if cfg.get('mode') == 'item':
+            # Keep item-mode framing at entity origin.
+            radius = max(Vector((x, y, z)).length for x in (mn.x, mx.x)
+                         for y in (mn.y, mx.y) for z in (mn.z, mx.z))
+            center = Vector((0, 0, 0))
+        else:
+            # Keep ship geometry's midpoint at the turntable/camera center.
+            # Several source meshes are offset from entity origin; rotating
+            # around that origin makes the hull orbit within a stable crop.
+            center = mesh_center.copy()
+            radius = max((Vector((x, y, z)) - center).length
+                         for x in (mn.x, mx.x)
+                         for y in (mn.y, mx.y) for z in (mn.z, mx.z))
     root = parent_under_root(center)
     particle_anchor = root.matrix_world.inverted() @ mesh_center
     setup_world(cfg)
