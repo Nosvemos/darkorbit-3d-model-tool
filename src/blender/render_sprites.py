@@ -319,6 +319,7 @@ def main():
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=glb)
+    mesh_center = scene_bounds()[0]  # geometry only, before outline/particles
     sys.path.insert(0, os.path.dirname(__file__))
     if cfg.get("light_model") == "darkorbit":
         import away_material
@@ -334,6 +335,7 @@ def main():
                      for y in (mn.y, mx.y) for z in (mn.z, mx.z))
         center = Vector((0, 0, 0))
     root = parent_under_root(center)
+    particle_anchor = root.matrix_world.inverted() @ mesh_center
     setup_world(cfg)
     if cfg.get('light_model') != 'darkorbit':
         setup_sun(cfg)
@@ -346,6 +348,8 @@ def main():
                     for p in row:
                         if p:
                             pos = Vector([p['position'][i] * scale[i] + layer['position'][i] for i in range(3)])
+                            if layer.get('center_on_mesh'):
+                                pos = away_to_blender(pos) + particle_anchor
                             extent = math.hypot(p['size'][0] * scale[0], p['size'][1] * scale[1]) / 2
                             frame_radius = max(frame_radius, pos.length + extent)
     cam = setup_camera(cfg, center, frame_radius)
@@ -356,7 +360,7 @@ def main():
     particles = None
     if cfg.get("particle_scene"):
         import away_particles
-        particles = away_particles.Scene(cfg["particle_scene"], root, cam)
+        particles = away_particles.Scene(cfg["particle_scene"], root, cam, particle_anchor)
     res = cfg["resolution"]
 
     hide_list = cfg.get("hide_objects") or []

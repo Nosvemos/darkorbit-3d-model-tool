@@ -58,27 +58,25 @@ def resolve_design(mesh_name: str, design: str | None) -> str | None:
     if design in (None, ""):
         return None
     key = str(design).strip().lower()
-    if key not in config.PET_DESIGNS:
-        choices = ", ".join(sorted(config.PET_DESIGNS))
+    if key not in config.DESIGNS:
+        choices = ", ".join(sorted(config.DESIGNS))
         raise ValueError(f"unknown design '{design}' (choose {choices})")
-    pet_level = mesh_name.lower().removeprefix("pet-")
-    if not mesh_name.lower().startswith("pet-") or not pet_level.isdigit() or not 1 <= int(pet_level) <= 15:
-        raise ValueError(
-            f"design '{key}' requires a PET level mesh ('pet-1' through 'pet-15')")
+    if mesh_name.lower() not in config.DESIGNS[key]['meshes']:
+        raise ValueError(f"design '{key}' does not support mesh '{mesh_name}'")
     return key
 
 
 def _design_geometry(mesh_name: str, design: str | None) -> str:
     key = resolve_design(mesh_name, design)
     if key:
-        return config.PET_DESIGNS[key]["geometry"]
+        return config.DESIGNS[key]["geometry"]
     return mesh_name
 
 
 def _design_texture_overrides(mesh_name: str, design: str | None,
                               textures: dict | None) -> dict | None:
     key = resolve_design(mesh_name, design)
-    defaults = dict(config.PET_DESIGNS[key]["textures"]) if key else {}
+    defaults = dict(config.DESIGNS[key]["textures"]) if key else {}
     defaults.update(textures or {})
     return defaults or None
 
@@ -100,6 +98,8 @@ def _texture_input_states(mesh_name: str, textures_dir: str,
     search = [textures_dir, config.TEXTURES_DIR, config.FX_DIR]
     found = {}
     for channel in config.CHANNELS:
+        if overrides.get(channel) == "none":
+            continue
         atf = _resolve_atf(overrides[channel], search) if overrides.get(channel) \
             else _find_texture(textures_dir, mesh_name, channel)
         if overrides.get(channel) and not atf:
@@ -161,6 +161,8 @@ def decode_textures(mesh_name: str, textures_dir: str, model_out: str,
     search = [textures_dir, config.TEXTURES_DIR, config.FX_DIR]
     found: dict[str, str] = {}
     for channel in config.CHANNELS:
+        if overrides.get(channel) == "none":
+            continue
         atf = _resolve_atf(overrides[channel], search) if overrides.get(channel) \
             else _find_texture(textures_dir, mesh_name, channel)
         if atf:
@@ -245,7 +247,7 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
             objects.append({
                 "name": object_name,
                 "overlay": is_overlay,
-                "matrix": _matrix16(inst),
+                "matrix": _matrix16(inst, config.DESIGNS[design].get("mesh_scale", 1) if design and not is_overlay else 1),
                 "positions": positions,
                 "indices": indices,
                 "uvs": uvs,
@@ -267,7 +269,7 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
 
     appearance = None
     if design:
-        preset = config.PET_DESIGNS[design]
+        preset = config.DESIGNS[design]
         appearance = {key: preset[key] for key in (
             "rim_color", "rim_strength", "rim_power", "outline_size")}
         appearance["visual_size"] = preset["visual_size"]
@@ -281,8 +283,9 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
     return json_path
 
 
-def _matrix16(inst) -> list[float]:
+def _matrix16(inst, scale=1) -> list[float]:
     rows = inst.matrix_rows()
+    rows = [[v * scale if i < 3 else v for v in row] for i, row in enumerate(rows)]
     return [v for row in rows for v in row]
 
 
@@ -312,7 +315,7 @@ def build_inputs(mesh_name: str, fx: bool = False, textures: dict | None = None,
         "fx": bool(fx),
         "textures": dict(textures or {}),
         "design": design,
-        "design_recipe": config.PET_DESIGNS.get(design),
+        "design_recipe": config.DESIGNS.get(design),
         "clip": clip or None,
         "overlay": overlay or None,
         "hide_objects": list(hide_objects or []),
@@ -399,7 +402,8 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
             clip: str | None = None, overlay: str | None = None,
             output_name: str | None = None, hide_objects: list[str] | None = None,
             progress=None, cancel_event=None, process_callback=None,
-            design: str | None = None, save_blend: bool = True) -> str:
+            design: str | None = None, save_blend: bool = True,
+            effect_style: str = "softened", appearance_overrides: dict | None = None) -> str:
     if cancel_event is not None and cancel_event.is_set():
         raise CancelledError("job cancelled")
     export_name = config.safe_output_name(output_name, mesh_name)
@@ -426,14 +430,16 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
                 f"Blender finished without creating the expected GLB: {out_glb}")
         if save_blend:
             cfg = {**config.RENDER_DEFAULTS, **config.RENDER_PROFILES['darkorbit'],
-                   'frames': 1, 'source_scene': scene_json,
+                   'frames': 1, 'source_scene': scene_json, 'effect_style': effect_style,
                    'blend_path': os.path.join(model, f'{export_name}.blend')}
             def check_cancelled():
                 if cancel_event is not None and cancel_event.is_set():
                     raise CancelledError('job cancelled')
             if design:
                 from src.fx.scene import prepare
-                cfg['particle_scene'] = prepare(config.PET_DESIGNS[design]['particles'],
+                preset = config.DESIGNS[design]
+                cfg['appearance'] = config.appearance_settings(preset, appearance_overrides or {})
+                cfg['particle_scene'] = prepare(config.design_particles(preset, cfg['appearance']),
                                                 work, cfg, check_cancelled)
             cfg_path = os.path.join(work, f'{export_name}_scene_cfg.json')
             with open(cfg_path, 'w', encoding='utf-8') as f:

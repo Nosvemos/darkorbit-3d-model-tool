@@ -151,14 +151,13 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
         cfg.update(config.QUALITY_PRESETS[quality])
     cfg.update(overrides)
     if design:
-        preset = config.PET_DESIGNS[design]
-        cfg["appearance"] = {key: preset[key] for key in (
-            "rim_color", "rim_strength", "rim_power", "outline_size")}
+        preset = config.DESIGNS[design]
+        cfg["appearance"] = config.appearance_settings(preset, cfg)
     cfg["source_scene"] = os.path.join(work, f"{export_name}.scene.json")
     cfg["blend_path"] = os.path.join(config.model_dir(export_name, base), f"{export_name}.blend")
     if design and cfg.get("design_particles", True):
         from src.fx.scene import prepare
-        cfg["particle_scene"] = prepare(config.PET_DESIGNS[design]["particles"], work,
+        cfg["particle_scene"] = prepare(config.design_particles(preset, cfg["appearance"]), work,
                                         cfg, check_cancelled)
     cfg_path = os.path.join(work, f"{export_name}_render_cfg.json")
     with open(cfg_path, "w", encoding="utf-8") as f:
@@ -257,15 +256,25 @@ _FLAG_TO_KEY = {
     "quality": "quality",
     "hide_objects": "hide_objects",
     "crop_align": "crop_align",
-    "effect_time": "effect_time", "effect_fps": "effect_fps",
+    "effect_time": "effect_time", "effect_fps": "effect_fps", "effect_style": "effect_style",
     "cam_zoom": "cam_zoom", "camera_framing": "camera_framing",
+    **{key:key for key in config.APPEARANCE_KEYS},
 }
+
+
+def add_appearance_args(ap):
+    for key in config.APPEARANCE_KEYS:
+        ap.add_argument('--' + key.replace('_','-'),
+                        type=str if key.endswith('color') else float,
+                        help='override design preset ' + key.replace('_',' '))
 
 
 def add_render_args(ap):
     """Attach the render flags to a parser (shared by `render` and the CLI)."""
+    add_appearance_args(ap)
     ap.add_argument("--profile", choices=sorted(config.RENDER_PROFILES),
                     help="visual profile (default: darkorbit)")
+    ap.add_argument('--effect-style', choices=('softened', 'source'), help='particle styling (default softened)')
     ap.add_argument('--effect-time', type=float, help='PET effect start time in seconds (default 2)')
     ap.add_argument('--effect-fps', type=float, help='PET effect sampling rate (default 30)')
     ap.add_argument('--cam-zoom', type=float, help='Observer3D zoom, 1 through 3')

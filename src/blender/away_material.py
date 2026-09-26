@@ -146,6 +146,17 @@ def material(name, textures, cfg, appearance=None):
         color = g.vec('MAXIMUM', color, g.vec('SCALE', base,
             g.math('MULTIPLY', split.outputs['X'], cfg.get('emission_strength', 1))))
     if appearance and appearance.get('rim_color'):
+        tint = appearance.get('body_tint', 0.)
+        if tint:
+            # Preserve the brightest lit channel when recolouring. Luminance
+            # weighting darkens saturated source highlights (especially blue)
+            # before the rim is applied, making all three skins look dull.
+            channels = g.node('SeparateColor')
+            g.put(color, channels.inputs[0])
+            value = g.math('MAXIMUM', channels.outputs[0],
+                           g.math('MAXIMUM', channels.outputs[1], channels.outputs[2]))
+            recolored = g.vec('SCALE', rgb(appearance['rim_color']), value)
+            color = g.vec('ADD', g.vec('SCALE', color, 1-tint), g.vec('SCALE', recolored, tint))
         ndv = g.math('MULTIPLY', g.vec('DOT_PRODUCT', normal, view), 1, clamp=True)
         rim = g.math('MULTIPLY', g.math('POWER', g.math('SUBTRACT', 1, ndv),
                                      appearance['rim_power']), appearance['rim_strength'])
@@ -164,7 +175,7 @@ def apply(scene_data, cfg):
         src = sources.get(ob.name)
         if ob.type != 'MESH' or not src or not src.get('textures'):
             continue
-        appearance = scene_data.get('appearance') if not src.get('overlay') else None
+        appearance = (cfg.get('appearance') or scene_data.get('appearance')) if not src.get('overlay') else None
         ob.data.materials.clear()
         ob.data.materials.append(material(ob.name, src['textures'], cfg, appearance))
         if appearance and appearance.get('outline_size'):

@@ -503,6 +503,7 @@ function renderList(){
 function setStatus(t){ $("#status").textContent = t; }
 
 async function select(name){
+  const selectedKind = kind;
   sel = name; renderList();
   $("#empty").style.display="none"; $("#detail").style.display="block";
   $("#title").textContent = name;
@@ -514,15 +515,46 @@ async function select(name){
   $("#info").innerHTML='<span class="mut">loading…</span>';
   try{
     const i = await jget(`/api/info?name=${encodeURIComponent(name)}&fx=${isFx()?1:0}`);
+    if(sel !== name || kind !== selectedKind) return;
+    const ds = $("#o_design");
+    ds.innerHTML = '<option value="">standard</option>' + Object.entries(i.designs||{}).map(([key,d])=>`<option value="${key}">${d.label}</option>`).join("");
+    $("#design_label").hidden = !Object.keys(i.designs||{}).length;
+    const applyDesignTextures = () => {
+      const maps = {...(i.textures||{}), ...(i.designs?.[ds.value]?.textures||{})};
+      document.querySelectorAll('#actions .tex').forEach(el=>{
+        el.value = maps[el.dataset.ch] || '';
+        el.dataset.automatic = el.value;
+        validateTextureInput(el);
+      });
+    };
+    const applyDesignAppearance = () => {
+      const preset = i.designs?.[ds.value];
+      $('#appearance_controls').hidden = !preset;
+      if(!preset) return;
+      const defaults = {design_color:preset.rim_color, rim_strength:preset.rim_strength,
+        rim_power:preset.rim_power, body_tint:preset.body_tint ?? 0,
+        particle_color:preset.rim_color, particle_intensity:preset.particle_intensity ?? 1,
+        particle_scale:preset.particle_scale ?? 1};
+      document.querySelectorAll('#appearance_controls .opt').forEach(el=>{
+        el.value = defaults[el.dataset.key];
+        el.dataset.appearanceDefault = el.value;
+      });
+    };
+    ds.addEventListener('change', ()=>{ applyDesignTextures(); applyDesignAppearance(); });
+    $('#reset_appearance').onclick = applyDesignAppearance;
+    document.querySelector('#appearance_controls [data-key="design_color"]').oninput = e => {
+      const mist = document.querySelector('#appearance_controls [data-key="particle_color"]');
+      if(i.designs?.[ds.value]?.body_tint !== undefined && mist.value === mist.dataset.appearanceDefault){
+        mist.value = e.target.value;
+        mist.dataset.appearanceDefault = mist.value;
+      }
+    };
+    applyDesignAppearance();
     let rows = i.objects.map(o=>`<tr><td><label class="chk" style="margin:0;font-size:13px;font-weight:normal;cursor:pointer;"><input type="checkbox" class="obj-visible" data-name="${o.name}" checked> ${o.name}${o.point?' <span class="pt">●point</span>':''}</label></td><td>${o.verts}v</td><td>${o.tris}t</td></tr>`).join("");
     const detected = Object.keys(i.textures||{});
     $("#info").innerHTML = `<table><tr><th>object</th><th>verts</th><th>tris</th></tr>${rows}</table>
       <div class="mut" style="margin-top:8px">auto textures: ${detected.join(", ")||"none"} · clips: ${i.clips.join(", ")||"none"}</div>`;
-    // pre-fill the manual texture inputs with whatever was auto-detected
-    Object.entries(i.textures||{}).forEach(([c,n])=>{
-      const el = document.querySelector(`#actions .tex[data-ch="${c}"]`);
-      if(el) { el.value = n; validateTextureInput(el); }
-    });
+    applyDesignTextures();
     // populate the clip selector (vertex animations); "all" plays every clip
     const cl = $("#o_clip");
     if(cl) cl.innerHTML = '<option value="">all clips</option>' +
@@ -601,11 +633,8 @@ function renderActions(){
   }
   a.innerHTML = `<div class="row">
       <label>profile<select class="opt" data-key="profile" id="o_profile"><option value="darkorbit" selected>darkorbit</option></select></label>
-      ${kind === "meshes" && /^pet-([1-9]|1[0-5])$/i.test(sel) ? `<label>PET design<select class="opt" data-key="design" id="o_design">
-        <option value="">standard</option>
-        <option value="pet-frozen">Frozen</option>
-        <option value="pet-inferno">Inferno</option>
-      </select></label>` : ""}
+      <label id="design_label" hidden>design<select class="opt" data-key="design" id="o_design"><option value="">standard</option></select></label>
+      <label>effects<select class="opt" data-key="effect_style"><option value="softened">softened</option><option value="source">source</option></select></label>
       <label>mode<select class="opt" data-key="mode"><option>auto</option><option>ship</option><option>item</option></select></label>
       <label>quality<select class="opt" data-key="quality" id="o_quality">
         <option value="extra_low">extra low</option>
@@ -629,6 +658,19 @@ function renderActions(){
       <div class="row">
         ${["diffuse","normal","specular","glow","alpha","ao","gal"].map(c=>`<label>${c}<input class="tex" data-ch="${c}" placeholder="(auto)" autocomplete="off"></label>`).join("")}
       </div>
+    </div>
+    <div id="appearance_controls" hidden>
+      <div class="row" style="margin-top:12px">
+        ${color({label:"body / rim color",key:"design_color"},"#33ccff")}
+        ${num({label:"body tint (0–1)",key:"body_tint"},.65,"0.05",0,1)}
+        ${num({label:"rim strength",key:"rim_strength"},1.6,"0.1",0,12)}
+        ${num({label:"rim power",key:"rim_power"},2,"0.1",.1,12)}
+        ${color({label:"mist color",key:"particle_color"},"#33ccff")}
+        ${num({label:"mist intensity",key:"particle_intensity"},1,"0.1",0,5)}
+        ${num({label:"mist size",key:"particle_scale"},1,"0.1",.1,4)}
+        <button type="button" class="act alt" id="reset_appearance">Reset preset</button>
+      </div>
+      <div class="mut">Changes apply on Render or Convert. Tunable presets use base textures; source presets retain original recipes.</div>
     </div>
     <details style="margin-top:10px">
       <summary>Advanced</summary>
@@ -745,12 +787,20 @@ function collectOpts(){
   const o = {};
   document.querySelectorAll("#actions .opt").forEach(el=>{
     if(el.value==="") return;
+    if(el.closest("#appearance_controls") && (!$("#o_design").value || el.value === el.dataset.appearanceDefault)) return;
     o[el.dataset.key] = el.type==="number" ? +el.value : el.value;
   });
   document.querySelectorAll("#actions .optbool").forEach(el=>{
     o[el.dataset.key] = el.dataset.invert ? el.checked : !el.checked;
   });
   return o;
+}
+function collectAppearance(){
+  const opts = collectOpts(), result = {};
+  document.querySelectorAll('#appearance_controls .opt').forEach(el=>{
+    if(el.dataset.key in opts) result[el.dataset.key] = opts[el.dataset.key];
+  });
+  return result;
 }
 function collectProfileOverrides(){
   const o = {};
@@ -766,7 +816,7 @@ function collectProfileOverrides(){
 function collectTextures(){
   const t = {};
   document.querySelectorAll("#actions .tex").forEach(el=>{
-    if(el.value.trim()) t[el.dataset.ch] = el.value.trim();
+    if(el.value.trim() && el.value.trim() !== el.dataset.automatic) t[el.dataset.ch] = el.value.trim();
   });
   return t;
 }
@@ -789,8 +839,10 @@ async function runConvert(){
   busy(true); setStatus("converting… (Blender)");
   try{
     const r = await runJob("/api/convert",{
+      ...collectAppearance(),
       name: s,
       fx: k==="fx",
+      effect_style: document.querySelector('.opt[data-key="effect_style"]').value,
       gltf: $("#o_gltf").checked,
       obj: $("#o_obj").checked,
       design: $("#o_design")?.value || "",
@@ -1059,7 +1111,7 @@ window.addEventListener("scroll", positionTexturePicker, true);
 
 function validateTextureInput(el){
   const val = el.value.trim();
-  if(!val){ el.style.borderColor = ""; return; }
+  if(!val || val === "none"){ el.style.borderColor = ""; return; }
   const clean = val.endsWith(".atf") ? val.slice(0, -4) : val;
   if(TEX_NAMES.includes(clean)){
     el.style.borderColor = "";

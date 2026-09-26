@@ -95,7 +95,7 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--overlay NAME`| Overlay another mesh (AWD) on top of the main model.              |
 | `--clip NAME` | Include only one animation clip in the model.                     |
 | `--texture CHANNEL=NAME` | Override an ATF texture channel; repeat for more channels. |
-| `--design NAME` | Apply `pet-frozen` or `pet-inferno` to a PET level mesh. Uses `pet-15` geometry, shared PET ATF maps, and the reference Stage3D material in a packed Blender scene. |
+| `--design NAME` | Apply a supported PET/ship design. Includes custom yellow `pet-legend` and 13 source recipes for the five Goliath variants; see the reference guide. |
 | `--output-name NAME` | Use a custom basename for exported files (a recognized file extension is stripped). Alias: `--export-name`. |
 | `--queue`      | Submit this conversion to the standalone CLI queue.                |
 | `--follow`     | With `--queue`, stream status until this job finishes.              |
@@ -169,7 +169,7 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--ambient-color HEX` | `#ff855c` (`darkorbit`) | Source map ambient colour. |
 | `--overlay NAME`     | —             | Overlay another mesh (AWD) on top of the main model. |
 | `--texture CHANNEL=NAME` | —          | Override an ATF channel; repeat for more than one. |
-| `--design NAME` | —          | Apply `pet-frozen` or `pet-inferno` to a PET level mesh; uses `pet-15` geometry and the reference Stage3D material in a packed Blender scene. |
+| `--design NAME` | —          | Apply a supported PET/ship design; the UI lists designs compatible with the selected mesh. |
 
 Bundled HDRIs: `studio` · `city` · `courtyard` · `forest` · `interior` · `night`
 · `sunrise` · `sunset`. Select one with `--hdri <name>.exr` or use `--use-hdri`
@@ -196,7 +196,7 @@ PET Frozen/Inferno use `pet-15` and the shared PET ATFs. Rendering now uses
 material equations extracted from the bundled `main.swf`, including rim MIX,
 outline geometry and the original AWP particle layers with XYZ depth.
 Normal PET levels also resolve their shared `pet` texture set automatically.
-No ordinary PET Legend recipe exists in the inspected client; the Legend PET
+A custom yellow `pet-legend` is available. No ordinary PET Legend recipe exists in the inspected client; the Legend PET
 entries belong to other meshes and are deliberately not substituted.
 
 `convert` and `render` also write a packed **`.blend`** with the camera and source
@@ -396,3 +396,25 @@ Python 3.10–3.12 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 For educational and personal use. Game assets (`meshes/`, `textures/`, `fx/`) are
 the property of their respective owners and are **not** included in this
 repository.
+
+Particle effects default to softened edges and a tighter Frozen halo. Use
+`--effect-style source` for source particle geometry; Inferno’s extra scattered
+cloud is also disabled in that mode. Ship design texture inheritance and the
+13 supported recipes are documented in [the reference guide](docs/06_darkorbit_profile_reference.md#ship-designs-and-softened-effects-2026-09-26).
+
+
+### Tunable skins
+
+The unsuffixed Frozen/Inferno/Legend presets now use the normal mesh textures,
+including Legend. All five Goliath families and normal PET have three tunable
+variants. Each has a Frost-style mist layer in its own colour. In the UI choose
+**design**, then adjust body/rim colour, body tint, rim strength/power, and mist
+colour/intensity/size. **Reset preset** restores the initial values. Click Render
+or Convert to apply changes; these are not live changes to an already rendered PNG.
+Original game recipes remain available as `*-source` presets.
+
+Both CLI commands support `--design-color`, `--body-tint`, `--rim-strength`,
+`--rim-power`, `--particle-color`, `--particle-intensity`, and `--particle-scale`.
+See the [reference guide](docs/06_darkorbit_profile_reference.md#tunable-base-texture-presets)
+for ranges and examples. Procedural skins/effects are stored in `.blend` and PNG;
+GLB retains the portable base material.

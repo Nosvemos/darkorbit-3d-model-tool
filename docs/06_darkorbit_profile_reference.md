@@ -127,7 +127,10 @@ faces. The Blender hull uses the same expansion and backface visibility.
 
 Normal PET Legend has no asset recipe in this supplied client. The Legend
 shader exists (FFD135 / 9 / 2.5), but the PET recipes referencing it use other
-geometries such as Chimera and Mirage. No invented normal-PET Legend is offered.
+geometries such as Chimera and Mirage. The requested yellow normal-PET variant is
+now available as `pet-legend`, explicitly labelled custom. It uses the normal
+PET maps, yellow rim (strength 2, power 2) and recoloured Frozen particles; it
+is not presented as a discovered original asset.
 
 ## Particles and outputs
 
@@ -167,3 +170,117 @@ seed for a pixel comparison. EEVEE rasterization, tangent generation, filtering
 and hull overlap/stencil behaviour can differ from Stage3D. Dynamic map combat
 lights, engine trails and movement history are not synthesized for an isolated
 stationary model. Do not describe output as pixel-identical without that comparison.
+
+
+## Ship designs and softened effects (2026-09-26)
+
+The design picker is populated from the server registry for the selected AWD.
+The five supported AWDs are `goliath-solace`, `goliath-spectrum`,
+`goliath-sentinel`, `goliath-diminisher`, and `goliath-venom`.
+
+| Ship | Frozen / Frost maps | Inferno maps | Legend maps |
+| --- | --- | --- | --- |
+| Solace | solace-frost diffuse + glow | goliath-solace-blaze diffuse | No normal-ship recipe in inspected XML |
+| Spectrum | Shared base maps | Shared base maps | spectrum-design-legend diffuse + glow |
+| Sentinel | Shared base maps | Shared base maps | goliath-sentinel_design_legend diffuse + glow + specular |
+| Diminisher | diminisher-frost diffuse + glow; no normal/specular maps | Shared base maps | ship_diminisher_design_legend diffuse + glow |
+| Venom | Shared base maps | Shared base maps | No normal-ship recipe in inspected XML |
+
+Unchanged channels are inherited except for Diminisher Frost, which replaces
+`texture` itself. `PrefabMaterialManager.assembleTextureResKey` resolves the
+per-channel attribute, then `texture`, then `geometry`; it does not fall back
+to base-ship normal/specular maps after a whole texture-set replacement.
+The resource manifest and local texture directory contain only diffuse/glow
+for `diminisher-frost`. Explicit `none` overrides suppress those absent channels.
+No remote ATF downloads were required: all referenced maps were already local.
+Solace-plus Legend is a different geometry and is not substituted for Solace.
+
+The source XML mesh scale is applied to ship geometry and hardpoints: .85 for
+Solace/Sentinel/Venom/Spectrum and .7 for Diminisher. Source particle emitter
+scales and positions remain independent. Legend ship rim parameters are the
+source FFD135 / 9 / 2.5, without an outline or invented particle layer.
+
+`effect_style=softened` is the default requested visual adjustment:
+
+- Frozen's 400-unit glow planes use 48% size; spark geometry is unchanged.
+- All particle quads have a circular smoothstep alpha falloff before the edges.
+- Inferno adds a scattered warm recolouring of `ice_cloud` at reduced opacity.
+- Custom PET Legend recolours both texture intensity and particle colour tracks,
+  preserving alpha rather than multiplying yellow into blue texture channels.
+
+Choose **effects: source** or `--effect-style source` for the original particle
+sizes/layers and unmodified edge alpha. This option does not make the custom
+PET Legend an original game design. The appearance adjustments remain in the
+packed Blender scene and sprite output; portable GLB does not encode AWP effects.
+Manual texture edits still override presets; automatically displayed base maps
+are no longer sent back as manual overrides masking a design's textures.
+
+Examples:
+
+```powershell
+python -m src render pet-15 --design pet-legend --frames 4 --output-name pet-legend
+python -m src render goliath-sentinel --design sentinel-frozen --frames 4
+python -m src render goliath-spectrum --design spectrum-legend --frames 4
+python -m src render goliath-solace --design solace-inferno --effect-style source --frames 4
+```
+
+
+## Tunable base-texture presets
+
+The unsuffixed design IDs (`spectrum-legend`, `solace-inferno`, etc.) now select
+custom, tunable presets. All five ship families and normal PET have Frozen,
+Inferno and Legend variants: 18 presets total. These use base textures, with
+no design-specific diffuse or glow dependency. Solace/Venom Legend are explicitly
+custom variants. Source recipes from the table above remain selectable with
+`-source` appended; no nonexistent source Legend recipe is invented.
+
+All tunable presets share the family's Frozen `frost_ship_trail` and `ice_cloud`
+emitters, recoloured blue/orange/gold. Softened edges remain the default. Body
+colour blends the lit surface toward colour times its brightest RGB channel, preserving
+texture detail and light/shadow modulation. Rim remains a separate contribution.
+Portable GLB still carries the base material; these procedural adjustments are
+stored in the packed `.blend` and rendered PNGs.
+
+| Control / CLI flag | Range | Purpose |
+| --- | --- | --- |
+| `--design-color` | #RRGGBB | Body and rim colour; mist follows unless overridden |
+| `--body-tint` | 0–1 | Blend from original surface to tinted peak-channel brightness |
+| `--rim-strength` | 0–12 | Rim intensity |
+| `--rim-power` | 0.1–12 | Rim falloff; larger values concentrate it nearer the silhouette |
+| `--particle-color` | #RRGGBB | Independent mist colour |
+| `--particle-intensity` | 0–5 | Particle opacity multiplier; zero hides particles |
+| `--particle-scale` | 0.1–4 | Emitter extent and particle size multiplier |
+
+These controls apply to both Render and Convert. The picker loads preset defaults;
+Reset preset restores them. Only changed appearance values are submitted as overrides.
+Preset rim strengths are Frozen 2, Inferno 1.5, Legend 7, with powers 2/1/2.5;
+body tint strengths are .35/.55/.70. Inferno uses pure #FF0000. Recolouring
+preserves peak-channel brightness instead of luminance-weighted darkening.
+Source recipes retain their original values.
+
+```powershell
+python -m src render goliath-venom --design venom-legend --design-color '#FFD135' --body-tint .8 --rim-strength 1.8 --particle-intensity 1.2
+python -m src convert goliath-spectrum --design spectrum-legend --particle-color '#FFC850' --particle-scale 1.1
+python -m src render goliath-spectrum --design spectrum-legend-source --effect-style source
+```
+
+
+### Mist centering
+
+Tunable presets anchor emitters to the imported hull bounds centre, measured
+before outline or particles are added. Both the recipe offset (`ice_cloud`
+Y=-30) and fixed AWP layer translation (glow Y=-50) are removed for these
+presets. Animated motion, emitter scale, colours, and intensity are unchanged.
+The anchor is in the turntable root's local coordinates, so it rotates with the
+ship. Camera fitting includes the same anchor. Source recipes retain their
+original offsets. This applies to sprite renders and packed Blender snapshots.
+
+
+### Hull visibility through mist
+
+For centred tunable effects, billboard cloud/halo quads are moved behind the
+furthest visible hull bound along camera viewing rays. The bound is recomputed
+per frame, including turntable rotation. Perspective ray projection preserves
+the apparent centre and size; orthographic cameras use a parallel depth offset.
+The hull then occludes the mist with ordinary depth testing. Non-billboard sparks
+keep their original depth, and source recipes keep their original placement.

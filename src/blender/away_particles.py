@@ -42,10 +42,15 @@ def export_alpha():
 
 
 class Scene:
-    def __init__(self, path, root, camera):
+    def __init__(self, path, root, camera, mesh_center=(0, 0, 0)):
         self.root, self.camera = root, camera
+        self.mesh_center = Vector(mesh_center)
         export_alpha()
         self.layers = []
+        # Capture the hull before creating FX meshes. Recompute its far depth
+        # each frame so the mist remains behind it throughout a turntable.
+        self.hull_objects = [ob for ob in root.children_recursive
+                             if ob.type == 'MESH']
         with open(path, encoding='utf-8') as f:
             layers = json.load(f)
         for layer in layers:
@@ -70,8 +75,22 @@ class Scene:
             tex.extension = 'REPEAT' if layer.get('repeat') else 'EXTEND'
             m = g.node('VertexColor'); m.layer_name = mult.name
             o = g.node('VertexColor'); o.layer_name = offset.name
-            color = g.vec('ADD', g.vec('MULTIPLY', tex.outputs['Color'], m.outputs['Color']), o.outputs['Color'])
+            texture_color = tex.outputs['Color']
+            if layer.get('tint_texture'):
+                separate = g.node('SeparateColor')
+                g.put(texture_color, separate.inputs[0])
+                peak = g.math('MAXIMUM', separate.outputs[0], g.math('MAXIMUM', separate.outputs[1], separate.outputs[2]))
+                texture_color = g.vec('SCALE', (1, 1, 1), peak)
+            color = g.vec('ADD', g.vec('MULTIPLY', texture_color, m.outputs['Color']), o.outputs['Color'])
             alpha = g.math('ADD', g.math('MULTIPLY', tex.outputs['Alpha'], m.outputs['Alpha']), o.outputs['Alpha'], clamp=True)
+            if layer.get('soft_edges'):
+                uv = g.node('TexCoord').outputs['UV']
+                centered = g.vec('SUBTRACT', uv, (.5, .5, 0))
+                radius2 = g.vec('DOT_PRODUCT', centered, centered)
+                # Circular C1 falloff: full within r=.2, zero before r=.5.
+                t = g.math('DIVIDE', g.math('SUBTRACT', .24, radius2), .20, clamp=True)
+                smooth = g.math('MULTIPLY', g.math('MULTIPLY', t, t), g.math('SUBTRACT', 3, g.math('MULTIPLY', 2, t)))
+                alpha = g.math('MULTIPLY', alpha, smooth)
             if layer['blend'] == 'add':
                 # Transparent + emission implements ONE / ONE accumulation;
                 # compositor derives an export alpha from accumulated radiance.
@@ -88,8 +107,16 @@ class Scene:
 
     def update(self, frame):
         inverse_root = self.root.matrix_world.inverted()
+        eye = self.camera.matrix_world.translation
+        forward = (self.camera.matrix_world.to_3x3() @ Vector((0, 0, -1))).normalized()
+        far_depth = max(((ob.matrix_world @ Vector(corner) - eye).dot(forward)
+                         for ob in self.hull_objects if not ob.hide_render
+                         for corner in ob.bound_box), default=0.) + 1.
+
         for layer, ob, mult, offset in self.layers:
-            emitter = self.root.matrix_world @ AXIS @ Matrix.Translation(Vector(layer['position'])) @ Matrix.Diagonal((*layer['scale'], 1))
+            behind_hull = layer.get('center_on_mesh') and layer['billboard']
+            anchor = self.mesh_center if layer.get('center_on_mesh') else Vector((0, 0, 0))
+            emitter = self.root.matrix_world @ Matrix.Translation(anchor) @ AXIS @ Matrix.Translation(Vector(layer['position'])) @ Matrix.Diagonal((*layer['scale'], 1))
             for i, p in enumerate(layer['samples'][frame]):
                 if p is None:
                     for k in range(4):
@@ -116,6 +143,16 @@ class Scene:
                 w, h = p['size']
                 for k, (u, v) in enumerate(((-.5, -.5), (.5, -.5), (.5, .5), (-.5, .5))):
                     world = center + basis @ spin @ Vector((u*w*sx, v*h*sy, 0))
+                    if behind_hull:
+                        ray = world - eye
+                        depth = ray.dot(forward)
+                        if depth > 0 and depth < far_depth:
+                            # Move along the viewing ray: retain the screen
+                            # centre/size while the opaque hull occludes mist.
+                            if self.camera.data.type == 'ORTHO':
+                                world += forward * (far_depth - depth)
+                            else:
+                                world = eye + ray * (far_depth / depth)
                     ob.data.vertices[i*4+k].co = inverse_root @ world
                     mult.data[i*4+k].color = p['color'][:4]
                     offset.data[i*4+k].color = p['color'][4:]

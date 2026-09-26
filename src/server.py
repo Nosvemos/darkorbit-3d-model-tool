@@ -86,6 +86,7 @@ def api_info(q):
                         "verts": geo.vertex_count if geo else 0,
                         "tris": geo.triangle_count if geo else 0})
     return {"name": name, "objects": objects,
+            "designs": {} if fx else config.designs_for(name),
             "clips": [c.name for c in scene.clips],
             "textures": pipeline.detect_textures(name, tex_dir,
                                                   single_atf_fallback=fx),
@@ -104,7 +105,9 @@ def api_convert(body, progress=None, control=None):
     name = body["name"]
     fx = bool(body.get("fx"))
     export_name = config.safe_output_name(body.get("output_name"), name)
-    glb = pipeline.convert(name, gltf=bool(body.get("gltf")),
+    glb = pipeline.convert(name, appearance_overrides={k:body[k] for k in config.APPEARANCE_KEYS if k in body},
+                           effect_style=body.get("effect_style") or "softened",
+                           gltf=bool(body.get("gltf")),
                            obj=bool(body.get("obj")), run=bool(body.get("run", True)), fx=fx,
                            textures=body.get("textures") or None,
                            design=body.get("design") or None,

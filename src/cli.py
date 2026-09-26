@@ -64,13 +64,12 @@ def _texture_overrides(args) -> dict[str, str] | None:
 def _design_from_args(args) -> str | None:
     design = getattr(args, "design", None) or None
     mesh = (getattr(args, "mesh", None) or "").lower()
-    level = mesh.removeprefix("pet-")
-    is_pet_level = mesh.startswith('pet-') and level.isdigit() and 1 <= int(level) <= 15
-    if design and (getattr(args, "fx", False) or getattr(args, "all", False) or
-                   not is_pet_level):
-        raise SystemExit(
-            f"error: --design {design} requires one PET mesh ('pet-1' through 'pet-15')")
-    return design
+    if design and (getattr(args, "fx", False) or getattr(args, "all", False)):
+        raise SystemExit("error: --design requires one supported mesh")
+    try:
+        return pipeline.resolve_design(mesh, design)
+    except ValueError as exc:
+        raise SystemExit(f"error: {exc}") from exc
 
 
 def _server_url(args) -> str:
@@ -194,20 +193,22 @@ def cmd_convert(args):
     hide = [h.strip() for h in args.hide_objects.split(",") if h.strip()] if getattr(args, "hide_objects", None) else None
     textures = _texture_overrides(args)
     design = _design_from_args(args)
+    appearance = {k:getattr(args,k,None) for k in config.APPEARANCE_KEYS}
     submitted = []
     for name in _resolve_meshes(args):
         print(f"=== convert {name} ===")
         if args.queue:
-            body = {"name": name, "fx": args.fx, "gltf": args.gltf,
+            body = {**appearance, "name": name, "fx": args.fx, "gltf": args.gltf,
                     "obj": args.obj, "run": not args.no_blender,
                     "textures": textures, "clip": args.clip or None,
-                    "design": design,
+                    "design": design, "effect_style": args.effect_style,
                     "overlay": args.overlay or None,
                     "output_name": args.output_name or None,
                     "hide_objects": hide}
             submitted.append(_submit_job(args, "/api/convert", body, name))
             continue
-        out = pipeline.convert(name, gltf=args.gltf, obj=args.obj,
+        out = pipeline.convert(name, gltf=args.gltf, obj=args.obj, effect_style=args.effect_style,
+                               appearance_overrides=appearance,
                                run=not args.no_blender, fx=args.fx,
                                textures=textures, clip=args.clip or None,
                                design=design,
@@ -419,8 +420,10 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--clip", help="select a single animation clip")
     c.add_argument("--texture", dest="textures", action="append", metavar="CHANNEL=NAME",
                    help="override an ATF texture channel; may be repeated")
-    c.add_argument("--design", choices=sorted(config.PET_DESIGNS),
-                   help="apply a DarkOrbit PET design preset (requires pet-1 through pet-15)")
+    render_mod.add_appearance_args(c)
+    c.add_argument("--effect-style", choices=("softened", "source"), default="softened")
+    c.add_argument("--design", choices=sorted(config.DESIGNS),
+                   help="apply a design preset to its supported mesh")
     c.add_argument("--output-name", "--export-name", dest="output_name",
                    help="basename for exported files (default: mesh name)")
     c.add_argument("--hide", "--hide-objects", dest="hide_objects",
@@ -437,8 +440,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="basename for exported glb/sprite files (default: mesh name)")
     r.add_argument("--texture", dest="textures", action="append", metavar="CHANNEL=NAME",
                    help="override an ATF texture channel; may be repeated")
-    r.add_argument("--design", choices=sorted(config.PET_DESIGNS),
-                   help="apply a DarkOrbit PET design preset (requires pet-1 through pet-15)")
+    r.add_argument("--design", choices=sorted(config.DESIGNS),
+                   help="apply a design preset to its supported mesh")
     render_mod.add_render_args(r)
     _add_queue_submission_options(r)
     r.set_defaults(func=cmd_render)
