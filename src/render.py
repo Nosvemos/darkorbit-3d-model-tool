@@ -17,10 +17,13 @@ import argparse
 from concurrent.futures import CancelledError
 import glob
 import json
+import math
 import os
+import statistics
 import subprocess
 import sys
 
+import numpy as np
 from PIL import Image
 
 if __package__ in (None, ""):
@@ -86,6 +89,160 @@ def stable_crop(out_dir: str, raw: dict, padding: int, origin: str,
             out.append([int(round(x)), int(round(y))])
         adjusted[name] = out
     return adjusted, {"crop": [gx1, gy1, gx2, gy2], "size": [gx2 - gx1, gy2 - gy1]}
+
+
+def _reference_sprite_data(mesh_name: str) -> str | None:
+    """Find the matching DarkOrbit client atlas metadata, when installed."""
+    mesh_key = mesh_name.lower().replace("-", "_")
+    ship_group = "pets" if mesh_key.startswith("pet_") else "players"
+    filename = f"{mesh_key}_data.json"
+    configured = os.environ.get("DARKORBIT_REFERENCE_CLIENT")
+    client_roots = [configured] if configured else []
+    # The user's reference client normally sits next to this tool checkout.
+    client_roots.append(os.path.join(os.path.dirname(config.ROOT), "NosGalaxy_2012", "client"))
+    for client_root in client_roots:
+        if not client_root:
+            continue
+        path = os.path.join(client_root, "assets", "spacemap", "ships", ship_group, filename)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _alpha_bbox(image: Image.Image, threshold: int):
+    alpha = image.convert("RGBA").getchannel("A")
+    return alpha.point(lambda value: 255 if value >= threshold else 0).getbbox()
+
+
+def _fit_ship_frames_to_reference(mesh_name: str, frame_paths: list[str], coords: dict,
+                                  meta: dict, resolution: int, progress=None,
+                                  cancel_check=None) -> dict | None:
+    """Match source sprite scale and canvas around the fixed mesh midpoint.
+
+    This runs after the common crop, so every frame shares the same camera-space
+    mesh midpoint. The identical scale and paste offset are used for all frames.
+    """
+    reference_path = _reference_sprite_data(mesh_name)
+    if not reference_path:
+        if progress:
+            progress(f"reference sprite atlas not found for {mesh_name}; pixel fit skipped")
+        return None
+    try:
+        with open(reference_path, encoding="utf-8") as f:
+            reference = json.load(f)
+        ref_meta = reference["meta"]
+        frame_w, frame_h = map(int, ref_meta["frameSize"])
+        rects = reference["rects"]
+        image_path = os.path.join(os.path.dirname(reference_path), ref_meta["image"])
+        if not os.path.isfile(image_path) or not rects:
+            raise ValueError("atlas image or frame rectangles are missing")
+        atlas = Image.open(image_path).convert("RGBA")
+        source_sizes = []
+        frame_count = len(frame_paths)
+        sample_indices = [round(i * (len(rects) - 1) / max(frame_count - 1, 1))
+                          for i in range(frame_count)]
+        for index in sample_indices:
+            x, y = map(int, rects[index])
+            bounds = _alpha_bbox(atlas.crop((x, y, x + frame_w, y + frame_h)), 240)
+            if bounds:
+                source_sizes.append((bounds[2] - bounds[0], bounds[3] - bounds[1]))
+        if len(source_sizes) != frame_count:
+            raise ValueError("reference atlas does not contain enough visible frames")
+        source_hull_w = statistics.median(width for width, _ in source_sizes)
+        source_hull_h = statistics.median(height for _, height in source_sizes)
+    except (OSError, KeyError, TypeError, ValueError, IndexError) as exc:
+        if progress:
+            progress(f"reference sprite atlas unavailable for {mesh_name}: {exc}; pixel fit skipped")
+        return None
+
+    crop = meta.get("crop")
+    if not isinstance(crop, list) or len(crop) != 4:
+        if progress:
+            progress(f"stable crop metadata missing for {mesh_name}; pixel fit skipped")
+        return None
+    crop_x, crop_y, crop_r, crop_b = map(int, crop)
+    source_crop_w, source_crop_h = crop_r - crop_x, crop_b - crop_y
+    rendered_sizes = []
+    for path in frame_paths:
+        if cancel_check:
+            cancel_check()
+        with Image.open(path) as image:
+            bounds = _alpha_bbox(image, 245)
+        if bounds:
+            rendered_sizes.append((bounds[2] - bounds[0], bounds[3] - bounds[1]))
+    if len(rendered_sizes) != frame_count:
+        raise RuntimeError(f"{mesh_name}: could not measure all rendered ship frames")
+    render_hull_w = statistics.median(width for width, _ in rendered_sizes)
+    render_hull_h = statistics.median(height for _, height in rendered_sizes)
+    scale = math.sqrt((source_hull_w / render_hull_w) *
+                      (source_hull_h / render_hull_h))
+
+    target_w = math.ceil(frame_w * 1.16)
+    target_h = math.ceil(frame_h * 1.16)
+    resized_w = max(1, round(source_crop_w * scale))
+    resized_h = max(1, round(source_crop_h * scale))
+    scale_x, scale_y = resized_w / source_crop_w, resized_h / source_crop_h
+    input_anchor_x = (resolution - 1) / 2 - crop_x
+    input_anchor_y = (resolution - 1) / 2 - crop_y
+    output_anchor_x, output_anchor_y = (target_w - 1) / 2, (target_h - 1) / 2
+    paste_x = round(output_anchor_x - ((input_anchor_x + 0.5) * scale_x - 0.5))
+    paste_y = round(output_anchor_y - ((input_anchor_y + 0.5) * scale_y - 0.5))
+    if progress:
+        progress(f"matching {mesh_name} frames to {frame_w}x{frame_h} reference sprite")
+
+    for path in frame_paths:
+        if cancel_check:
+            cancel_check()
+        with Image.open(path) as image:
+            resized = image.convert("RGBA").resize(
+                (resized_w, resized_h), Image.Resampling.LANCZOS)
+        fitted = Image.new("RGBA", (target_w, target_h), (0, 0, 0, 0))
+        fitted.paste(resized, (paste_x, paste_y))
+        pixels = np.asarray(fitted).copy()
+        yy = np.minimum(np.arange(target_h) + 1, target_h - np.arange(target_h)).astype(np.float32)
+        xx = np.minimum(np.arange(target_w) + 1, target_w - np.arange(target_w)).astype(np.float32)
+        fade_y = np.clip(yy / 6.0, 0.0, 1.0)
+        fade_x = np.clip(xx / 6.0, 0.0, 1.0)
+        fade_y = fade_y * fade_y * (3.0 - 2.0 * fade_y)
+        fade_x = fade_x * fade_x * (3.0 - 2.0 * fade_x)
+        pixels[:, :, 3] = np.rint(
+            pixels[:, :, 3].astype(np.float32) * fade_y[:, None] * fade_x[None, :]
+        ).astype(np.uint8)
+        Image.fromarray(pixels, "RGBA").save(path, optimize=True)
+
+    for point, samples in coords.items():
+        converted = []
+        for position in samples:
+            if position == "OFF" or position is None:
+                converted.append("OFF")
+            else:
+                converted.append([
+                    int(round((float(position[0]) + 0.5) * scale_x - 0.5 + paste_x)),
+                    int(round((float(position[1]) + 0.5) * scale_y - 0.5 + paste_y)),
+                ])
+        coords[point] = converted
+
+    meta["source_render_crop"] = crop
+    meta["source_render_size"] = meta.get("size", [source_crop_w, source_crop_h])
+    meta["size"] = [target_w, target_h]
+    fit = {
+        "source": os.path.abspath(reference_path),
+        "source_frame_size": [frame_w, frame_h],
+        "source_hull_median": [source_hull_w, source_hull_h],
+        "render_hull_median": [render_hull_w, render_hull_h],
+        "scale": scale,
+        "effective_scale": [scale_x, scale_y],
+        "target_size": [target_w, target_h],
+        "input_mesh_midpoint": [input_anchor_x, input_anchor_y],
+        "output_mesh_midpoint": [output_anchor_x, output_anchor_y],
+        "paste_origin": [paste_x, paste_y],
+        "source_crop": crop,
+        "effect_padding_fraction": 0.16,
+        "centering": "fixed projected mesh-bounds midpoint for every frame; no per-frame alpha-bounds recentering",
+        "frame_count": frame_count,
+    }
+    meta["pixel_match_reference"] = fit
+    return fit
 
 
 def render(mesh_name: str, overrides: dict, fx: bool = False,
@@ -219,6 +376,18 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
         coords = {k: [[int(round(v[0])), int(round(v[1]))] if v else "OFF"
                       for v in vals] for k, vals in raw["points"].items()}
         meta = {"size": [raw["resolution"]] * 2}
+
+    pixel_fit = None
+    if cfg.get("profile") == "darkorbit" and cfg.get("mode") == "ship" and design:
+        frame_paths = [os.path.join(sprites, name) for name in raw["frames"]]
+        pixel_fit = _fit_ship_frames_to_reference(
+            mesh_name, frame_paths, coords, meta, int(cfg["resolution"]),
+            progress=progress, cancel_check=check_cancelled)
+        if pixel_fit:
+            cfg["pixel_match_reference"] = pixel_fit
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f)
+
     # Coords.json only when there are tracked points (ship mode); item / point-less
     # renders skip it. Flat {point_name: [[x, y] | "OFF", ...]} matches the app format.
     coords_path = os.path.join(sprites, f"{export_name}_Coords.json")
