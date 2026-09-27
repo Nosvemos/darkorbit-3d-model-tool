@@ -403,18 +403,25 @@ cloud is also disabled in that mode. Ship design texture inheritance and the
 13 supported recipes are documented in [the reference guide](docs/06_darkorbit_profile_reference.md#ship-designs-and-softened-effects-2026-09-26).
 
 
-### Tunable skins
+### Tunable appearance and mesh-wide effects
 
 The unsuffixed Frozen/Inferno/Legend presets now use the normal mesh textures,
 including Legend. All five Goliath families and normal PET have three tunable
-variants. Each has a Frost-style mist layer in its own colour. In the UI choose
-**design**, then adjust body/rim colour, body tint, rim strength/power, and mist
-colour/intensity/size. **Reset preset** restores the initial values. Click Render
+variants. Each has a Frost-style mist layer in its own colour. In Meshes and FX
+Meshes, **appearance effect** is separate from **design**. Automatic follows a
+supported design when one is selected; Frost, Inferno, and Legend also provide
+mesh-wide presets for models without a design recipe. Their particle size follows
+the visible mesh bounds, and the particle field is centered on the hull. Select a
+preset, then adjust body/rim colour, body tint, rim strength/power, and mist
+colour/intensity/size. **Reset preset** restores the preset values. Click Render
 or Convert to apply changes; these are not live changes to an already rendered PNG.
-Original game recipes remain available as `*-source` presets.
+Original game recipes remain available as `*-source` design presets.
 
 Both CLI commands support `--design-color`, `--body-tint`, `--rim-strength`,
 `--rim-power`, `--particle-color`, `--particle-intensity`, and `--particle-scale`.
+Choose a mesh-wide look with `--effect-preset frost`, `inferno`, or `legend`; use
+`none` to disable effects. The default `auto` uses a selected design when it has
+an appearance recipe.
 See the [reference guide](docs/06_darkorbit_profile_reference.md#tunable-base-texture-presets)
-for ranges and examples. Procedural skins/effects are stored in `.blend` and PNG;
-GLB retains the portable base material.
+for ranges and examples. Procedural appearance/effects are stored in `.blend` and
+PNG; GLB retains the portable base material.

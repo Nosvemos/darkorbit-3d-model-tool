@@ -191,7 +191,8 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
                      model_out: str, work: str, textures: dict | None = None,
                      clip: str | None = None, overlay: str | None = None,
                      output_name: str | None = None, hide_objects: list[str] | None = None,
-                     design: str | None = None) -> str:
+                     design: str | None = None,
+                     appearance: dict | None = None) -> str:
     """Parse the AWD and write the intermediate scene JSON. Returns its path."""
     design = resolve_design(mesh_name, design)
     textures = _design_texture_overrides(mesh_name, design, textures)
@@ -267,15 +268,10 @@ def build_scene_json(mesh_name: str, meshes_dir: str, textures_dir: str,
         overlay_textures = decode_textures(overlay, textures_dir, model_out)
         add_scene_objects(overlay_scene, overlay_textures, is_overlay=True)
 
-    appearance = None
-    if design:
-        preset = config.DESIGNS[design]
-        appearance = {key: preset[key] for key in (
-            "rim_color", "rim_strength", "rim_power", "outline_size")}
-        appearance["visual_size"] = preset["visual_size"]
     data = {"name": export_name, "source": mesh_name,
             "geometry_source": geometry_mesh, "design": design,
-            "appearance": appearance, "objects": objects}
+            "appearance": appearance, "objects": objects,
+            "bounds_radius": _scene_bounds_radius(objects)}
     os.makedirs(work, exist_ok=True)
     json_path = os.path.join(work, f"{export_name}.scene.json")
     with open(json_path, "w", encoding="utf-8") as f:
@@ -287,6 +283,41 @@ def _matrix16(inst, scale=1) -> list[float]:
     rows = inst.matrix_rows()
     rows = [[v * scale if i < 3 else v for v in row] for i, row in enumerate(rows)]
     return [v for row in rows for v in row]
+
+
+def _scene_bounds_radius(objects: list[dict]) -> float:
+    """Return the visible model's bounding-sphere radius in scene units."""
+    bounds = [None, None, None, None, None, None]
+    body_objects = []
+    point_prefixes = config.POINT_PREFIXES
+    for obj in objects:
+        if obj.get('hide') or obj.get('name', '').startswith(point_prefixes):
+            continue
+        positions, matrix = obj.get('positions') or (), obj.get('matrix') or ()
+        if len(matrix) != 16 or len(positions) < 3:
+            continue
+        body_objects.append((positions, matrix))
+        for i in range(0, len(positions) - 2, 3):
+            x, y, z = positions[i:i + 3]
+            world = (matrix[0]*x + matrix[1]*y + matrix[2]*z + matrix[3],
+                     matrix[4]*x + matrix[5]*y + matrix[6]*z + matrix[7],
+                     matrix[8]*x + matrix[9]*y + matrix[10]*z + matrix[11])
+            for axis, value in enumerate(world):
+                low, high = bounds[axis*2], bounds[axis*2 + 1]
+                bounds[axis*2] = value if low is None else min(low, value)
+                bounds[axis*2 + 1] = value if high is None else max(high, value)
+    if not body_objects:
+        return 0.
+    center = [(bounds[i] + bounds[i + 1]) / 2 for i in (0, 2, 4)]
+    radius_sq = 0.
+    for positions, matrix in body_objects:
+        for i in range(0, len(positions) - 2, 3):
+            x, y, z = positions[i:i + 3]
+            world = (matrix[0]*x + matrix[1]*y + matrix[2]*z + matrix[3],
+                     matrix[4]*x + matrix[5]*y + matrix[6]*z + matrix[7],
+                     matrix[8]*x + matrix[9]*y + matrix[10]*z + matrix[11])
+            radius_sq = max(radius_sq, sum((world[a] - center[a])**2 for a in range(3)))
+    return radius_sq ** .5
 
 
 def build_inputs(mesh_name: str, fx: bool = False, textures: dict | None = None,
@@ -403,13 +434,16 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
             output_name: str | None = None, hide_objects: list[str] | None = None,
             progress=None, cancel_event=None, process_callback=None,
             design: str | None = None, save_blend: bool = True,
-            effect_style: str = "softened", appearance_overrides: dict | None = None) -> str:
+            effect_style: str = "softened", appearance_overrides: dict | None = None,
+            effect_preset: str = "auto") -> str:
     if cancel_event is not None and cancel_event.is_set():
         raise CancelledError("job cancelled")
     export_name = config.safe_output_name(output_name, mesh_name)
     design = resolve_design(mesh_name, design)
     if design and fx:
         raise ValueError("PET design presets cannot be applied to FX meshes")
+    appearance_preset, appearance = config.resolve_appearance_settings(
+        effect_preset, design, appearance_overrides)
     effective_textures = _design_texture_overrides(mesh_name, design, textures)
     meshes_dir = config.FX_DIR if fx else config.MESHES_DIR
     textures_dir = config.FX_DIR if fx else config.TEXTURES_DIR
@@ -420,7 +454,9 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
     scene_json = build_scene_json(mesh_name, meshes_dir, textures_dir, model, work,
                                   textures=effective_textures, clip=clip, overlay=overlay,
                                   output_name=export_name, hide_objects=hide_objects,
-                                  design=design)
+                                  design=design, appearance=appearance)
+    with open(scene_json, encoding="utf-8") as f:
+        mesh_radius = json.load(f).get("bounds_radius", 100.)
     out_glb = os.path.join(model, f"{export_name}.glb")
     if run:
         run_blender(scene_json, out_glb, gltf, obj, progress=progress,
@@ -435,12 +471,14 @@ def convert(mesh_name: str, gltf: bool = False, obj: bool = False,
             def check_cancelled():
                 if cancel_event is not None and cancel_event.is_set():
                     raise CancelledError('job cancelled')
-            if design:
+            if appearance is not None:
+                cfg['appearance'] = appearance
+            if appearance_preset and cfg.get('design_particles', True):
                 from src.fx.scene import prepare
-                preset = config.DESIGNS[design]
-                cfg['appearance'] = config.appearance_settings(preset, appearance_overrides or {})
-                cfg['particle_scene'] = prepare(config.design_particles(preset, cfg['appearance']),
-                                                work, cfg, check_cancelled)
+                recipes = config.design_particles(appearance_preset, appearance,
+                                                  mesh_radius=mesh_radius)
+                if recipes:
+                    cfg['particle_scene'] = prepare(recipes, work, cfg, check_cancelled)
             cfg_path = os.path.join(work, f'{export_name}_scene_cfg.json')
             with open(cfg_path, 'w', encoding='utf-8') as f:
                 json.dump(cfg, f)

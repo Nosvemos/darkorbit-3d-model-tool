@@ -11,6 +11,8 @@ def test_subcommand_dispatch():
     assert a.command == "info" and a.mesh == "sibelon" and a.func.__name__ == "cmd_info"
     a = ap.parse_args(["convert", "x", "--fx", "--gltf", "--no-blender"])
     assert a.fx and a.gltf and a.no_blender
+    a = ap.parse_args(["convert", "x", "--effect-preset", "frost"])
+    assert a.effect_preset == "frost"
     a = ap.parse_args(["convert", "x", "--overlay", "addon", "--output-name", "renamed"])
     assert a.overlay == "addon" and a.output_name == "renamed"
     a = ap.parse_args(["list"])
@@ -19,6 +21,8 @@ def test_subcommand_dispatch():
     assert a.name == "explosion0" and a.frames == 12 and a.output_name == "boom"
     a = ap.parse_args(["render", "m", "--overlay", "addon", "--output-name", "shot"])
     assert a.overlay == "addon" and a.output_name == "shot"
+    a = ap.parse_args(["render", "m", "--effect-preset", "legend"])
+    assert a.effect_preset == "legend"
     a = ap.parse_args(["ui", "--port", "9001", "--no-browser"])
     assert a.command == "ui" and a.port == 9001 and a.no_browser
 
@@ -51,4 +55,5 @@ def test_render_overrides_only_set_flags():
     ap = build_parser()
     a = ap.parse_args(["render", "m"])
     ov = render_mod.overrides_from_args(a)
+    assert a.effect_preset == "auto"
     assert ov == {}  # nothing overridden -> all defaults apply

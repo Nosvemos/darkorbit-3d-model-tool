@@ -265,6 +265,25 @@ python -m src render goliath-spectrum --design spectrum-legend-source --effect-s
 ```
 
 
+### Mesh-wide appearance presets
+
+The Meshes and FX Meshes UI has an **appearance effect** picker independent of
+the **design** picker. `auto` follows a selected design recipe; `none` disables
+particles while still allowing manual body/rim controls; `frost`, `inferno`, and
+`legend` provide generic presets even when the selected mesh has no design entry.
+These recipes use visible mesh bounds to scale their particles and anchor the
+field at the hull centre. Mesh point markers and hidden parts are excluded from
+the bounds. They work on textured and untextured meshes.
+
+```powershell
+python -m src render liberator --effect-preset frost --frames 72
+python -m src render aegis-repair-pod --effect-preset legend --design-color '#E5C020' --rim-strength 5.5
+```
+
+Particle effects and the view-dependent rim are stored in the packed Blender
+scene and sprite output. Portable GLB remains the base model/material.
+
+
 ### Mist centering
 
 Tunable presets anchor emitters to the imported hull bounds centre, measured

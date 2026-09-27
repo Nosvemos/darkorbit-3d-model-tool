@@ -510,7 +510,7 @@ async function select(name){
   $("#meta").textContent = kind==="meshes"?"mesh":kind==="fx"?"fx mesh":"particle effect";
   stopAnim(); frames=[]; $("#viewer").innerHTML='<span class="mut">no preview yet</span>';
   $("#links").innerHTML=""; $("#fcount").textContent="";
-  renderActions();
+  const savedSettings = renderActions();
   if(isEffect()){ $("#info").innerHTML='<span class="mut">Away3D particle effect — render to preview the sprite sequence.</span>'; return; }
   $("#info").innerHTML='<span class="mut">loading…</span>';
   try{
@@ -519,6 +519,8 @@ async function select(name){
     const ds = $("#o_design");
     ds.innerHTML = '<option value="">standard</option>' + Object.entries(i.designs||{}).map(([key,d])=>`<option value="${key}">${d.label}</option>`).join("");
     $("#design_label").hidden = !Object.keys(i.designs||{}).length;
+    if(savedSettings?.design && i.designs?.[savedSettings.design]) ds.value = savedSettings.design;
+    const effectPreset = $("#o_effect_preset");
     const applyDesignTextures = () => {
       const maps = {...(i.textures||{}), ...(i.designs?.[ds.value]?.textures||{})};
       document.querySelectorAll('#actions .tex').forEach(el=>{
@@ -527,29 +529,49 @@ async function select(name){
         validateTextureInput(el);
       });
     };
-    const applyDesignAppearance = () => {
-      const preset = i.designs?.[ds.value];
-      $('#appearance_controls').hidden = !preset;
-      if(!preset) return;
-      const defaults = {design_color:preset.rim_color, rim_strength:preset.rim_strength,
-        rim_power:preset.rim_power, body_tint:preset.body_tint ?? 0,
-        particle_color:preset.rim_color, particle_intensity:preset.particle_intensity ?? 1,
-        particle_scale:preset.particle_scale ?? 1};
+    const activeAppearanceDefaults = () => {
+      const selected = effectPreset.value || 'auto';
+      if(selected === 'auto') {
+        const design = i.designs?.[ds.value];
+        if(design) return {
+          design_color:design.rim_color, rim_strength:design.rim_strength,
+          rim_power:design.rim_power, body_tint:design.body_tint ?? 0,
+          particle_color:design.particle_color || design.rim_color,
+          particle_intensity:design.particle_intensity ?? 1,
+          particle_scale:design.particle_scale ?? 1
+        };
+        return i.default_appearance;
+      }
+      if(selected === 'none') return i.default_appearance;
+      return i.effect_presets?.[selected]?.appearance || i.default_appearance;
+    };
+    const applyAppearanceDefaults = () => {
+      const defaults = activeAppearanceDefaults();
       document.querySelectorAll('#appearance_controls .opt').forEach(el=>{
         el.value = defaults[el.dataset.key];
         el.dataset.appearanceDefault = el.value;
       });
     };
-    ds.addEventListener('change', ()=>{ applyDesignTextures(); applyDesignAppearance(); });
-    $('#reset_appearance').onclick = applyDesignAppearance;
+    ds.addEventListener('change', ()=>{ applyDesignTextures(); applyAppearanceDefaults(); });
+    effectPreset.addEventListener('change', applyAppearanceDefaults);
+    $('#reset_appearance').onclick = applyAppearanceDefaults;
     document.querySelector('#appearance_controls [data-key="design_color"]').oninput = e => {
       const mist = document.querySelector('#appearance_controls [data-key="particle_color"]');
-      if(i.designs?.[ds.value]?.body_tint !== undefined && mist.value === mist.dataset.appearanceDefault){
+      if(mist.value === mist.dataset.appearanceDefault){
         mist.value = e.target.value;
-        mist.dataset.appearanceDefault = mist.value;
       }
     };
-    applyDesignAppearance();
+    applyAppearanceDefaults();
+    const savedAppearance = savedSettings?._appearance_overrides || {};
+    const sameEffectSettings = savedSettings &&
+      savedSettings.effect_preset === effectPreset.value &&
+      (effectPreset.value !== 'auto' || savedSettings.design === ds.value);
+    if(sameEffectSettings){
+      document.querySelectorAll('#appearance_controls .opt').forEach(el=>{
+        if(savedAppearance[el.dataset.key] !== undefined)
+          el.value = savedAppearance[el.dataset.key];
+      });
+    }
     let rows = i.objects.map(o=>`<tr><td><label class="chk" style="margin:0;font-size:13px;font-weight:normal;cursor:pointer;"><input type="checkbox" class="obj-visible" data-name="${o.name}" checked> ${o.name}${o.point?' <span class="pt">●point</span>':''}</label></td><td>${o.verts}v</td><td>${o.tris}t</td></tr>`).join("");
     const detected = Object.keys(i.textures||{});
     $("#info").innerHTML = `<table><tr><th>object</th><th>verts</th><th>tris</th></tr>${rows}</table>
@@ -578,6 +600,12 @@ function saveSettings(){
     saved[el.dataset.key] = el.checked;
     if(el.dataset.profileOverride === "1")
       profileOverrides[el.dataset.key] = el.dataset.invert ? el.checked : !el.checked;
+  });
+  saved["_appearance_overrides"] = {};
+  document.querySelectorAll('#appearance_controls .opt').forEach(el=>{
+    if(el.value !== el.dataset.appearanceDefault)
+      saved["_appearance_overrides"][el.dataset.key] =
+        el.type === "number" ? +el.value : el.value;
   });
   saved["_profile_overrides"] = profileOverrides;
   const gltfEl = $("#o_gltf");
@@ -634,7 +662,11 @@ function renderActions(){
   a.innerHTML = `<div class="row">
       <label>profile<select class="opt" data-key="profile" id="o_profile"><option value="darkorbit" selected>darkorbit</option></select></label>
       <label id="design_label" hidden>design<select class="opt" data-key="design" id="o_design"><option value="">standard</option></select></label>
-      <label>effects<select class="opt" data-key="effect_style"><option value="softened">softened</option><option value="source">source</option></select></label>
+      <label>appearance effect<select class="opt" data-key="effect_preset" id="o_effect_preset">
+        <option value="auto">automatic</option><option value="none">none</option>
+        <option value="frost">Frost</option><option value="inferno">Inferno</option><option value="legend">Legend</option>
+      </select></label>
+      <label>particle style<select class="opt" data-key="effect_style"><option value="softened">softened</option><option value="source">source</option></select></label>
       <label>mode<select class="opt" data-key="mode"><option>auto</option><option>ship</option><option>item</option></select></label>
       <label>quality<select class="opt" data-key="quality" id="o_quality">
         <option value="extra_low">extra low</option>
@@ -659,7 +691,7 @@ function renderActions(){
         ${["diffuse","normal","specular","glow","alpha","ao","gal"].map(c=>`<label>${c}<input class="tex" data-ch="${c}" placeholder="(auto)" autocomplete="off"></label>`).join("")}
       </div>
     </div>
-    <div id="appearance_controls" hidden>
+    <div id="appearance_controls">
       <div class="row" style="margin-top:12px">
         ${color({label:"body / rim color",key:"design_color"},"#33ccff")}
         ${num({label:"body tint (0–1)",key:"body_tint"},.65,"0.05",0,1)}
@@ -670,7 +702,7 @@ function renderActions(){
         ${num({label:"mist size",key:"particle_scale"},1,"0.1",.1,4)}
         <button type="button" class="act alt" id="reset_appearance">Reset preset</button>
       </div>
-      <div class="mut">Changes apply on Render or Convert. Tunable presets use base textures; source presets retain original recipes.</div>
+      <div class="mut">Automatic uses the selected design recipe. Frost, Inferno, and Legend work on any mesh and scale to its bounds. Rendered sprites and the saved Blender scene include these effects; GLB remains the base model.</div>
     </div>
     <details style="margin-top:10px">
       <summary>Advanced</summary>
@@ -780,6 +812,7 @@ function renderActions(){
   restoreSettings(saved, profileKeys);
   if(!profiles[$("#o_profile").value]) $("#o_profile").value = "darkorbit";
   applyProfile($("#o_profile").value, saved?._profile_overrides || {});
+  return saved;
 }
 
 // gather every .opt / .optbool input in the actions panel into an override dict
@@ -787,7 +820,7 @@ function collectOpts(){
   const o = {};
   document.querySelectorAll("#actions .opt").forEach(el=>{
     if(el.value==="") return;
-    if(el.closest("#appearance_controls") && (!$("#o_design").value || el.value === el.dataset.appearanceDefault)) return;
+    if(el.closest("#appearance_controls") && el.value === el.dataset.appearanceDefault) return;
     o[el.dataset.key] = el.type==="number" ? +el.value : el.value;
   });
   document.querySelectorAll("#actions .optbool").forEach(el=>{
@@ -842,6 +875,7 @@ async function runConvert(){
       ...collectAppearance(),
       name: s,
       fx: k==="fx",
+      effect_preset: $("#o_effect_preset").value || "auto",
       effect_style: document.querySelector('.opt[data-key="effect_style"]').value,
       gltf: $("#o_gltf").checked,
       obj: $("#o_obj").checked,
@@ -865,6 +899,7 @@ async function runRender(){
       name: s,
       fx: k==="fx",
       design: $("#o_design")?.value || "",
+      effect_preset: $("#o_effect_preset").value || "auto",
       textures: collectTextures(),
       clip: ($("#o_clip")||{}).value||"",
       hide_objects: collectHiddenObjects()

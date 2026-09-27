@@ -193,6 +193,7 @@ def cmd_convert(args):
     hide = [h.strip() for h in args.hide_objects.split(",") if h.strip()] if getattr(args, "hide_objects", None) else None
     textures = _texture_overrides(args)
     design = _design_from_args(args)
+    effect_preset = getattr(args, "effect_preset", "auto")
     appearance = {k:getattr(args,k,None) for k in config.APPEARANCE_KEYS}
     submitted = []
     for name in _resolve_meshes(args):
@@ -201,7 +202,8 @@ def cmd_convert(args):
             body = {**appearance, "name": name, "fx": args.fx, "gltf": args.gltf,
                     "obj": args.obj, "run": not args.no_blender,
                     "textures": textures, "clip": args.clip or None,
-                    "design": design, "effect_style": args.effect_style,
+                    "design": design, "effect_preset": effect_preset,
+                    "effect_style": args.effect_style,
                     "overlay": args.overlay or None,
                     "output_name": args.output_name or None,
                     "hide_objects": hide}
@@ -209,6 +211,7 @@ def cmd_convert(args):
             continue
         out = pipeline.convert(name, gltf=args.gltf, obj=args.obj, effect_style=args.effect_style,
                                appearance_overrides=appearance,
+                               effect_preset=effect_preset,
                                run=not args.no_blender, fx=args.fx,
                                textures=textures, clip=args.clip or None,
                                design=design,
@@ -233,7 +236,7 @@ def cmd_render(args):
                             for key in profile}
             body = {**ov, "name": name, "fx": args.fx,
                     "textures": textures, "clip": args.clip or None,
-                    "design": design,
+                    "design": design, "effect_preset": args.effect_preset,
                     "overlay": args.overlay or None,
                     "output_name": args.output_name or None,
                     "profile_overrides": {key: value for key, value in ov.items()
@@ -243,6 +246,7 @@ def cmd_render(args):
         out = render_mod.render(name, ov, fx=args.fx, clip=args.clip or None,
                                 textures=textures,
                                 design=design,
+                                effect_preset=args.effect_preset,
                                 overlay=args.overlay or None,
                                 output_name=args.output_name or None)
         print(f"  -> {out}")
@@ -422,6 +426,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="override an ATF texture channel; may be repeated")
     render_mod.add_appearance_args(c)
     c.add_argument("--effect-style", choices=("softened", "source"), default="softened")
+    c.add_argument("--effect-preset", choices=config.EFFECT_PRESET_CHOICES, default="auto",
+                   help="appearance and particles; auto follows the selected design")
     c.add_argument("--design", choices=sorted(config.DESIGNS),
                    help="apply a design preset to its supported mesh")
     c.add_argument("--output-name", "--export-name", dest="output_name",

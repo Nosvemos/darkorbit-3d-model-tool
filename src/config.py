@@ -72,7 +72,7 @@ BLENDER_EXE = os.environ.get(
 
 BUILD_SCENE_SCRIPT = os.path.join(ROOT, "src", "blender", "build_scene.py")
 RENDER_SCRIPT = os.path.join(ROOT, "src", "blender", "render_sprites.py")
-MODEL_BUILD_VERSION = 9  # handedness, source materials, mask and object provenance
+MODEL_BUILD_VERSION = 10  # appearance data and scene-bounds-aware mesh effects
 
 # PET appearance presets reconstructed from reference/client ships.xml. These
 # designs share pet-15 geometry and the ordinary PET texture set; their game
@@ -191,6 +191,90 @@ for family in ('pet', 'solace', 'spectrum', 'sentinel', 'diminisher', 'venom'):
             recipe['center_on_mesh'] = True
         DESIGNS[family + '-' + style] = preset
 
+DEFAULT_APPEARANCE = {
+    'rim_color': '#FFFFFF', 'rim_strength': 0., 'rim_power': 2.,
+    'outline_size': 0., 'body_tint': 0., 'particle_color': None,
+    'particle_intensity': 1., 'particle_scale': 1.,
+}
+
+# These are geometry-independent effect recipes. scale_to_mesh makes the
+# particle field adapt to the selected AWD's bounds at render time; each mesh
+# can still use a regular design preset for its own geometry and textures.
+MESH_EFFECT_PRESETS = {
+    'frost': {
+        'label': 'Frost', 'rim_color': '#33CCFF', 'rim_strength': 2.,
+        'rim_power': 2., 'outline_size': 0., 'body_tint': .35,
+        'particle_color': '#33CCFF', 'particle_intensity': 1.,
+        'particle_scale': 1.,
+        'particles': [
+            {'name': 'frost_ship_trail', 'scale': [.7, .7, .7],
+             'position': [0, 0, 0], 'center_on_mesh': True,
+             'scale_to_mesh': True},
+            {'name': 'ice_cloud', 'scale': [1.3, .42, 1.3],
+             'position': [0, 0, 0], 'center_on_mesh': True,
+             'scale_to_mesh': True, 'opacity': .72},
+        ],
+    },
+    'inferno': {
+        'label': 'Inferno', 'rim_color': '#FF210C', 'rim_strength': 2.2,
+        'rim_power': 1.15, 'outline_size': 0., 'body_tint': .38,
+        'particle_color': '#F21B08', 'particle_intensity': 1.,
+        'particle_scale': 1.,
+        'particles': [
+            {'name': 'fire_trail', 'scale': [.78, .78, .78],
+             'position': [0, 0, 0], 'center_on_mesh': True,
+             'scale_to_mesh': True},
+            {'name': 'ice_cloud', 'scale': [.68, .32, .68],
+             'position': [0, 0, 0], 'center_on_mesh': True,
+             'scale_to_mesh': True, 'tint': [1., .1, .025], 'opacity': .52},
+        ],
+    },
+    'legend': {
+        'label': 'Legend', 'rim_color': '#FFD135', 'rim_strength': 4.5,
+        'rim_power': 2.5, 'outline_size': 0., 'body_tint': .48,
+        'particle_color': '#FFD135', 'particle_intensity': .9,
+        'particle_scale': .9,
+        'particles': [
+            {'name': 'fire_trail', 'scale': [.66, .66, .66],
+             'position': [0, 0, 0], 'center_on_mesh': True,
+             'scale_to_mesh': True},
+            {'name': 'ice_cloud', 'scale': [.72, .32, .72],
+             'position': [0, 0, 0], 'center_on_mesh': True,
+             'scale_to_mesh': True, 'opacity': .38},
+        ],
+    },
+}
+EFFECT_PRESET_CHOICES = ('auto', 'none', *MESH_EFFECT_PRESETS)
+
+
+def resolve_effect_preset(effect_preset='auto', design=None):
+    """Resolve auto/design, no-particle, or mesh-wide effect settings."""
+    key = str(effect_preset or 'auto').strip().lower()
+    if key == 'auto':
+        return DESIGNS.get(design) if design else None
+    if key == 'none':
+        return None
+    if key in MESH_EFFECT_PRESETS:
+        return MESH_EFFECT_PRESETS[key]
+    raise ValueError(f"unknown effect preset '{effect_preset}' (choose "
+                     + ', '.join(EFFECT_PRESET_CHOICES) + ')')
+
+
+def appearance_ui_defaults(preset=None):
+    """Map a resolved appearance preset to the browser/CLI control names."""
+    source = preset or DEFAULT_APPEARANCE
+    rim_color = source.get('rim_color', DEFAULT_APPEARANCE['rim_color'])
+    return {
+        'design_color': rim_color,
+        'rim_strength': source.get('rim_strength', DEFAULT_APPEARANCE['rim_strength']),
+        'rim_power': source.get('rim_power', DEFAULT_APPEARANCE['rim_power']),
+        'body_tint': source.get('body_tint', DEFAULT_APPEARANCE['body_tint']),
+        'particle_color': source.get('particle_color') or rim_color,
+        'particle_intensity': source.get('particle_intensity', DEFAULT_APPEARANCE['particle_intensity']),
+        'particle_scale': source.get('particle_scale', DEFAULT_APPEARANCE['particle_scale']),
+    }
+
+
 APPEARANCE_KEYS = ('design_color', 'rim_strength', 'rim_power', 'body_tint',
                    'particle_color', 'particle_intensity', 'particle_scale')
 
@@ -198,11 +282,13 @@ APPEARANCE_KEYS = ('design_color', 'rim_strength', 'rim_power', 'body_tint',
 def appearance_settings(preset, cfg):
     import math
     import re
-    result = {k:preset[k] for k in ('rim_color','rim_strength','rim_power','outline_size')}
+    preset = preset or DEFAULT_APPEARANCE
+    result = {k:preset.get(k, DEFAULT_APPEARANCE[k])
+              for k in ('rim_color','rim_strength','rim_power','outline_size')}
     result['body_tint'] = preset.get('body_tint', 0.)
     result['particle_intensity'] = preset.get('particle_intensity', 1.)
     result['particle_scale'] = preset.get('particle_scale', 1.)
-    result['particle_color'] = None
+    result['particle_color'] = preset.get('particle_color')
     for source, target in (('design_color','rim_color'), ('particle_color','particle_color')):
         value = cfg.get(source)
         if value not in (None, ''):
@@ -222,15 +308,43 @@ def appearance_settings(preset, cfg):
     return result
 
 
-def design_particles(preset, appearance):
+def resolve_appearance_settings(effect_preset='auto', design=None, overrides=None):
+    """Resolve preset appearance plus user overrides, or return ``None``."""
+    preset = resolve_effect_preset(effect_preset, design)
+    overrides = overrides or {}
+    has_overrides = any(value not in (None, '') for value in overrides.values())
+    if preset is None and not has_overrides:
+        return None, None
+    return preset, appearance_settings(preset, overrides)
+
+
+def design_particles(preset, appearance, mesh_radius=100.):
+    if not preset:
+        return []
     recipes = deepcopy(preset['particles'])
+    mesh_scale = effect_scale_for_radius(mesh_radius)
     for recipe in recipes:
-        recipe['scale'] = [v*appearance['particle_scale'] for v in recipe['scale']]
+        automatic_scale = mesh_scale if recipe.get('scale_to_mesh') else 1.
+        recipe['scale'] = [v*appearance['particle_scale']*automatic_scale
+                           for v in recipe['scale']]
         recipe['opacity'] = recipe.get('opacity',1.)*appearance['particle_intensity']
         color = appearance['particle_color']
         if color:
             recipe['tint'] = [int(color[i:i+2],16)/255 for i in (1,3,5)]
+        recipe.pop('scale_to_mesh', None)
     return recipes
+
+
+def effect_scale_for_radius(mesh_radius):
+    """Scale universal particle recipes against a representative 100-unit hull."""
+    import math
+    try:
+        radius = float(mesh_radius)
+    except (TypeError, ValueError):
+        return 1.
+    if not math.isfinite(radius) or radius <= 0:
+        return 1.
+    return max(.15, min(3., radius / 100.))
 
 
 def designs_for(mesh):

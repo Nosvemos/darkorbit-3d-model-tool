@@ -12,11 +12,12 @@ def test_spritesheet_grid_and_cell():
     layer = awp.Layer(name="x", texture_url="", blend_mode="add", geom_w=1, geom_h=1,
                       num=1, nodes={"ParticleSpriteSheetNodeSubParser":
                                     {"numRows": 2, "numColumns": 2}})
-    assert fxr._sheet(layer) == (2, 2)
+    sheet = (2, 2, 4, False)
+    assert fxr._sheet(layer) == sheet
     img = Image.new("RGBA", (8, 8))
-    assert fxr._sheet_cell(img, (2, 2), 0.0).size == (4, 4)   # first cell
-    assert fxr._sheet_cell(img, (2, 2), 0.99).size == (4, 4)  # last cell, clamped
-    assert fxr._sheet_cell(img, None, 0.5) is None            # no sheet -> no crop
+    assert fxr._sheet_cell(img, sheet, 0.0, 0.0, None).size == (4, 4)   # first cell
+    assert fxr._sheet_cell(img, sheet, 0.99, 0.99, None).size == (4, 4)  # last cell
+    assert fxr._sheet_cell(img, None, 0.5, 0.5, None) is None  # no sheet -> no crop
 
 
 def test_sample1d_const_and_random():

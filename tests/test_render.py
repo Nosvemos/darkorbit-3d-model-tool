@@ -173,7 +173,8 @@ def test_render_resolves_crop_align(tmp_path, monkeypatch):
         json.dump({"resolution": 32, "frames": [], "points": {}}, f)
 
     called_box = None
-    def mock_stable_crop(out_dir, raw, padding, origin, align_box=None):
+    def mock_stable_crop(out_dir, raw, padding, origin, align_box=None,
+                         cancel_check=None):
         nonlocal called_box
         called_box = align_box
         return {}, {"crop": align_box or [0, 0, 32, 32], "size": [32, 32]}
@@ -208,7 +209,8 @@ def test_render_scales_crop_align_resolutions(tmp_path, monkeypatch):
         json.dump({"resolution": 256, "frames": [], "points": {}}, f)
 
     called_box = None
-    def mock_stable_crop(out_dir, raw, padding, origin, align_box=None):
+    def mock_stable_crop(out_dir, raw, padding, origin, align_box=None,
+                         cancel_check=None):
         nonlocal called_box
         called_box = align_box
         return {}, {"crop": align_box or [0, 0, 256, 256], "size": [256, 256]}

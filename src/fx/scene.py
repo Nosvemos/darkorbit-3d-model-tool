@@ -25,11 +25,14 @@ def prepare(recipes, work, cfg, cancel_check):
         raise ValueError('Effect style must be softened or source')
     softened = style == 'softened'
     if softened:
-        for recipe in list(recipes):
-            if recipe['name'] == 'fire_trail':
-                scale = recipe['scale'][0]
-                recipes.append({'name':'ice_cloud', 'scale':[scale*.65,scale*.3,scale*.65],
-                                'position':[0,-12,0], 'tint':[1.,.24,.025], 'opacity':.65})
+        if (any(recipe['name'] == 'fire_trail' for recipe in recipes)
+                and not any(recipe['name'] == 'ice_cloud' for recipe in recipes)):
+            fire = next(recipe for recipe in recipes if recipe['name'] == 'fire_trail')
+            scale = fire['scale'][0]
+            recipes.append({'name':'ice_cloud', 'scale':[scale*.65,scale*.3,scale*.65],
+                            'position':[0,-12,0], 'tint':[1.,.24,.025], 'opacity':.65,
+                            'center_on_mesh': fire.get('center_on_mesh', False),
+                            'scale_to_mesh': fire.get('scale_to_mesh', False)})
     for ri, recipe in enumerate(recipes):
         effect = awp.load(ensure_awp(recipe['name']))
         for li, layer in enumerate(effect.layers):

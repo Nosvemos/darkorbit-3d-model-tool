@@ -173,9 +173,13 @@ def apply(scene_data, cfg):
     sources = {o['name']: o for o in scene_data['objects']}
     for ob in list(bpy.context.scene.objects):
         src = sources.get(ob.name)
-        if ob.type != 'MESH' or not src or not src.get('textures'):
+        if ob.type != 'MESH' or not src:
             continue
         appearance = (cfg.get('appearance') or scene_data.get('appearance')) if not src.get('overlay') else None
+        surface_appearance = appearance and any(
+            appearance.get(key, 0) > 0 for key in ('body_tint', 'rim_strength', 'outline_size'))
+        if not src['textures'] and not surface_appearance:
+            continue
         ob.data.materials.clear()
         ob.data.materials.append(material(ob.name, src['textures'], cfg, appearance))
         if appearance and appearance.get('outline_size'):

@@ -249,7 +249,9 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
            textures: dict | None = None, clip: str | None = None,
            overlay: str | None = None, output_name: str | None = None,
            progress=None, cancel_event=None, process_callback=None,
-           cancel_check=None, design: str | None = None) -> str:
+           cancel_check=None, design: str | None = None,
+           effect_preset: str = "auto",
+           appearance_overrides: dict | None = None) -> str:
     def check_cancelled():
         if cancel_check:
             cancel_check()
@@ -257,7 +259,16 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
             raise CancelledError("job cancelled")
 
     check_cancelled()
+    overrides = dict(overrides or {})
+    effect_preset = overrides.pop("effect_preset", effect_preset)
+    inline_appearance = {
+        key: overrides.pop(key) for key in config.APPEARANCE_KEYS
+        if key in overrides
+    }
+    appearance_overrides = {**inline_appearance, **(appearance_overrides or {})}
     design = resolve_design(mesh_name, design)
+    appearance_preset, appearance = config.resolve_appearance_settings(
+        effect_preset, design, appearance_overrides)
     export_name = config.safe_output_name(output_name, mesh_name)
     base = config.FX_OUT if fx else config.OUT_DIR
     glb = os.path.join(config.model_dir(export_name, base), f"{export_name}.glb")
@@ -286,6 +297,8 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
             progress("building glb…")
         convert(mesh_name, fx=fx, textures=textures, clip=clip, overlay=overlay,
                 output_name=export_name, hide_objects=hide_objs, design=design,
+                appearance_overrides=appearance_overrides,
+                effect_preset=effect_preset,
                 save_blend=False,
                 progress=progress,
                 cancel_event=cancel_event, process_callback=process_callback)
@@ -307,15 +320,19 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
     if quality in config.QUALITY_PRESETS:
         cfg.update(config.QUALITY_PRESETS[quality])
     cfg.update(overrides)
-    if design:
-        preset = config.DESIGNS[design]
-        cfg["appearance"] = config.appearance_settings(preset, cfg)
+    if appearance is not None:
+        cfg["appearance"] = appearance
     cfg["source_scene"] = os.path.join(work, f"{export_name}.scene.json")
     cfg["blend_path"] = os.path.join(config.model_dir(export_name, base), f"{export_name}.blend")
-    if design and cfg.get("design_particles", True):
+    cfg["effect_preset"] = effect_preset
+    if appearance_preset and cfg.get("design_particles", True):
         from src.fx.scene import prepare
-        cfg["particle_scene"] = prepare(config.design_particles(preset, cfg["appearance"]), work,
-                                        cfg, check_cancelled)
+        with open(cfg["source_scene"], encoding="utf-8") as f:
+            mesh_radius = json.load(f).get("bounds_radius", 100.)
+        recipes = config.design_particles(appearance_preset, appearance,
+                                          mesh_radius=mesh_radius)
+        if recipes:
+            cfg["particle_scene"] = prepare(recipes, work, cfg, check_cancelled)
     cfg_path = os.path.join(work, f"{export_name}_render_cfg.json")
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f)
@@ -435,7 +452,7 @@ def add_appearance_args(ap):
     for key in config.APPEARANCE_KEYS:
         ap.add_argument('--' + key.replace('_','-'),
                         type=str if key.endswith('color') else float,
-                        help='override design preset ' + key.replace('_',' '))
+                        help='override the active appearance preset ' + key.replace('_',' '))
 
 
 def add_render_args(ap):
@@ -444,6 +461,8 @@ def add_render_args(ap):
     ap.add_argument("--profile", choices=sorted(config.RENDER_PROFILES),
                     help="visual profile (default: darkorbit)")
     ap.add_argument('--effect-style', choices=('softened', 'source'), help='particle styling (default softened)')
+    ap.add_argument('--effect-preset', choices=config.EFFECT_PRESET_CHOICES,
+                    default='auto', help='appearance and particles; auto follows --design')
     ap.add_argument('--effect-time', type=float, help='PET effect start time in seconds (default 2)')
     ap.add_argument('--effect-fps', type=float, help='PET effect sampling rate (default 30)')
     ap.add_argument('--cam-zoom', type=float, help='Observer3D zoom, 1 through 3')

@@ -87,6 +87,12 @@ def api_info(q):
                         "tris": geo.triangle_count if geo else 0})
     return {"name": name, "objects": objects,
             "designs": {} if fx else config.designs_for(name),
+            "default_appearance": config.appearance_ui_defaults(),
+            "effect_presets": {
+                key: {"label": preset["label"],
+                      "appearance": config.appearance_ui_defaults(preset)}
+                for key, preset in config.MESH_EFFECT_PRESETS.items()
+            },
             "clips": [c.name for c in scene.clips],
             "textures": pipeline.detect_textures(name, tex_dir,
                                                   single_atf_fallback=fx),
@@ -107,6 +113,7 @@ def api_convert(body, progress=None, control=None):
     export_name = config.safe_output_name(body.get("output_name"), name)
     glb = pipeline.convert(name, appearance_overrides={k:body[k] for k in config.APPEARANCE_KEYS if k in body},
                            effect_style=body.get("effect_style") or "softened",
+                           effect_preset=body.get("effect_preset") or "auto",
                            gltf=bool(body.get("gltf")),
                            obj=bool(body.get("obj")), run=bool(body.get("run", True)), fx=fx,
                            textures=body.get("textures") or None,
@@ -144,6 +151,11 @@ def api_render(body, progress=None, control=None):
                 ov[key] = value
     sprites = render_mod.render(name, ov, fx=fx, textures=body.get("textures") or None,
                                 design=body.get("design") or None,
+                                effect_preset=body.get("effect_preset") or "auto",
+                                appearance_overrides={
+                                    key: body[key] for key in config.APPEARANCE_KEYS
+                                    if key in body
+                                },
                                 clip=body.get("clip") or None,
                                 overlay=body.get("overlay") or None,
                                 output_name=export_name, progress=progress,
@@ -502,7 +514,8 @@ def _job_worker():
         control = JobControl(jid, job)
         try:
             control.check_cancelled()
-            _begin_output_update(job)
+            if job.get("cleanup"):
+                _begin_output_update(job)
             result = fn(control)
             control.check_cancelled()
             with _LOCK:
