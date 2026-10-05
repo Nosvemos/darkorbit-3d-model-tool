@@ -439,7 +439,7 @@ RENDER_DEFAULTS = {
     "design_particles": True,
     **{key: None for key in APPEARANCE_KEYS},
     "effect_style": "softened",  # softened quads / warm scattered cloud, or source
-    "start_angle": 90.0,        # reflected Ship3D rotationY = heading - 90
+    "start_angle": 90.0,        # screen-right bow; renderer compensates camera pan
     "cam_ortho": False,        # MapView3D uses PerspectiveLens, not ortho
     "cam_fov": 30.0,           # PerspectiveLens(30)
     "cam_margin": 1.15,        # frame padding factor (>1 zooms out)

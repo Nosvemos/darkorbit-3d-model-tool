@@ -398,18 +398,24 @@ def main():
     aend = max(1.0, min(aend, anim_end))
 
     frames = cfg["frames"]
-    start = cfg.get("start_angle", 0.0)
+    start = cfg.get("start_angle", 90.0)
+    if cfg.get('camera_model') == 'darkorbit':
+        # AWD +Z (the bow) becomes Blender +Y. With Observer3D's camera,
+        # screen-right is (cos(pan), sin(pan), 0), so the bow needs a
+        # pan - 90 degree rotation. Keep the public start_angle=90 default
+        # as that right-facing pose; other values are offsets from it.
+        start += cfg.get('cam_pan', 25.0) - 180.0
     # per-frame step: explicit override, else spread total_degrees across all frames
     step = cfg.get("deg_per_frame")
     if not step:
         step = cfg.get("total_degrees", 360.0) / max(frames, 1)
     frame_start = cfg.get("frame_start", 1)
     rotation_enabled = cfg.get("rotation", True)
-    rotation_sign = -1 if cfg.get('camera_model') == 'darkorbit' else 1
 
     for f in range(frames):
         if rotation_enabled:
-            root.rotation_euler.z = math.radians(start + rotation_sign * f * step)
+            # Positive Blender Z rotation is counterclockwise on screen.
+            root.rotation_euler.z = math.radians(start + f * step)
         else:
             root.rotation_euler.z = math.radians(start)
 

@@ -118,7 +118,7 @@ A mesh name (without extension) is the positional argument for `convert`,
 | `--frames N`        | 72      | Frame count.                                         |
 | `--total-degrees D` | 360     | Total sweep; per-frame step = `D / frames`.          |
 | `--deg-per-frame D` | —       | Explicit step (overrides `total-degrees / frames`).  |
-| `--start-angle D`   | 90      | Rotation at frame 1 (front faces screen-right).      |
+| `--start-angle D`   | 90      | Frame 1 faces screen-right (3 o'clock) in DarkOrbit camera mode, with camera pan compensated. Increasing frames turn counterclockwise; other start angles offset this pose. |
 | `--frame-start N`   | 1       | First frame number in filenames.                     |
 | `--clip NAME`       | all     | Play/export a single animation clip.                 |
 | `--no-rotation`     | off     | Disable Z rotation (turntable) during rendering.     |
