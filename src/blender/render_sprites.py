@@ -359,7 +359,10 @@ def main():
                             pos = Vector([p['position'][i] * scale[i] + layer['position'][i] for i in range(3)])
                             if layer.get('center_on_mesh'):
                                 pos = away_to_blender(pos) + particle_anchor
-                            extent = math.hypot(p['size'][0] * scale[0], p['size'][1] * scale[1]) / 2
+                            # A billboard's vertical axis mixes world Y/Z when the
+                            # camera tilts. Use the largest emitter scale as a safe
+                            # bound; Away3D's Y scale is not its screen-height scale.
+                            extent = math.hypot(*p['size']) * max(map(abs, scale)) / 2
                             frame_radius = max(frame_radius, pos.length + extent)
     cam = setup_camera(cfg, center, frame_radius)
     if cfg.get('light_model') != 'darkorbit':

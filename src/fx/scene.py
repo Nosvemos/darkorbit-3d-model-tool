@@ -36,24 +36,48 @@ def prepare(recipes, work, cfg, cancel_check):
     for ri, recipe in enumerate(recipes):
         effect = awp.load(ensure_awp(recipe['name']))
         for li, layer in enumerate(effect.layers):
+            if recipe.get('layers') and layer.name not in recipe['layers']:
+                continue
             cancel_check()
             image = textures.get(layer.texture_url)
             if textures.missing:
                 raise ValueError('Missing original particle texture: ' + ', '.join(textures.missing))
             path = os.path.join(work, str(ri) + '_' + recipe['name'] + '_' + str(li) + '.png')
             image.save(path)
-            particles = _build_particles(layer, 1701 + ri * 100 + li)
+            spark_multiplier = 3 if (softened and recipe.get('center_on_mesh') and
+                                     'sparcl' in layer.name) else 1
+            particles = _build_particles(layer, 1701 + ri * 100 + li,
+                                         count_multiplier=spark_multiplier)
             inst = _layer_transform(layer)
             if recipe.get('center_on_mesh'):
                 # Remove the AWP layer's fixed offset (the glow is Y=-50).
                 # Preserve animated particle motion and anchor in Blender.
                 inst = ((0., 0., 0.), *inst[1:])
+            cloud = (softened and recipe.get('center_on_mesh') and
+                     'ParticleBillboardNodeSubParser' in layer.nodes and
+                     ('cloud' in layer.name or layer.name == 'glow'))
+            round_halo = cloud and layer.name == 'glow'
+            if round_halo:
+                # One centred carrier gives a circular cloud with a stronger
+                # core; four displaced glow disks make an oversized lumpy ring.
+                particles = particles[:1]
+            cloud_offsets = []
+            if cloud:
+                count = len(particles)
+                radius = .30 * max(layer.geom_w, layer.geom_h)
+                for index in range(count):
+                    angle = index * math.pi * (3.0 - math.sqrt(5.0))
+                    distance = radius * math.sqrt((index + .5) / count)
+                    cloud_offsets.append((math.cos(angle) * distance, math.sin(angle) * distance))
+                mean_x = sum(x for x, _ in cloud_offsets) / count
+                mean_z = sum(z for _, z in cloud_offsets) / count
+                cloud_offsets = [(x - mean_x, z - mean_z) for x, z in cloud_offsets]
             samples = []
             for fi in range(frames):
                 cancel_check()
                 t = start + fi / fps
                 row = []
-                for p in particles:
+                for particle_index, p in enumerate(particles):
                     state = _state(p, layer, inst, t, depth=True)
                     if state is None:
                         row.append(None)
@@ -70,7 +94,19 @@ def prepare(recipes, work, cfg, cancel_check):
                     opacity = recipe.get('opacity', 1.)
                     color[3] *= opacity
                     color[7] *= opacity
-                    size = .48 if softened and recipe['name'] == 'frost_ship_trail' and layer.name == 'glow' else 1.
+                    if cloud:
+                        # Stable emitter-local disk offsets spread the mist instead of
+                        # stacking every additive quad on the same bright centre.
+                        count = len(particles)
+                        x += cloud_offsets[particle_index][0]
+                        z += cloud_offsets[particle_index][1]
+                        # Reduce additive overlap in densely populated layers;
+                        # preserve hue and the original lifetime curves.
+                        density_normalizer = math.sqrt(count)
+                        color[3] /= density_normalizer
+                        color[7] /= density_normalizer
+                    size = .50 if round_halo else (
+                        .48 if softened and recipe['name'] == 'frost_ship_trail' and layer.name == 'glow' else 1.)
                     # Full particle position is transformed in Blender with the
                     # same emitter matrix as its quad (including ice-cloud Y).
                     spin = 2 * math.pi * age / p.rot_cycle if p.rot_cycle > 0 else 0
@@ -82,6 +118,8 @@ def prepare(recipes, work, cfg, cancel_check):
                            'blend': layer.blend_mode, 'repeat': layer.repeat, 'scale': recipe['scale'],
                            'position': [0,0,0] if recipe.get('center_on_mesh') else recipe['position'],
                            'center_on_mesh': recipe.get('center_on_mesh', False), 'soft_edges': softened,
+                           'distributed_cloud': bool(cloud),
+                           'round_halo': bool(round_halo),
                            'tint_texture': bool(recipe.get('tint')),
                            'billboard': 'ParticleBillboardNodeSubParser' in layer.nodes,
                            'heading': 'ParticleRotateToHeadingNodeSubParser' in layer.nodes,

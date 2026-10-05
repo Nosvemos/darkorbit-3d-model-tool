@@ -246,6 +246,14 @@ MESH_EFFECT_PRESETS = {
 }
 EFFECT_PRESET_CHOICES = ('auto', 'none', *MESH_EFFECT_PRESETS)
 
+# All generic palettes share the round halo and the wider animated spark field.
+# Fire recipes retain their own embers; the extra sparks use the palette tint.
+for palette in ('inferno', 'legend'):
+    MESH_EFFECT_PRESETS[palette]['particles'].append({
+        'name': 'frost_ship_trail', 'layers': ['sparcles', 'glow'], 'scale': [.7, .7, .7],
+        'position': [0, 0, 0], 'center_on_mesh': True, 'scale_to_mesh': True,
+    })
+
 
 def resolve_effect_preset(effect_preset='auto', design=None):
     """Resolve auto/design, no-particle, or mesh-wide effect settings."""

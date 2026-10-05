@@ -155,7 +155,8 @@ def _sample_curve(points, life):
     return points[-1][1]
 
 
-def _build_particles(layer: awp.Layer, seed: int, cancel_check=None) -> list[Particle]:
+def _build_particles(layer: awp.Layer, seed: int, cancel_check=None,
+                     count_multiplier: int = 1) -> list[Particle]:
     rng = random.Random(seed)
     time_d = layer.nodes.get(T_TIME, {})
     scale_node = layer.nodes.get(T_SCALE)
@@ -172,7 +173,7 @@ def _build_particles(layer: awp.Layer, seed: int, cancel_check=None) -> list[Par
     bezier_node = layer.nodes.get(T_BEZIER)
 
     out = []
-    for particle_index in range(max(1, layer.num)):
+    for particle_index in range(max(1, layer.num * count_multiplier)):
         if cancel_check and particle_index % 64 == 0:
             cancel_check()
         smin, smax, scale_cycle, scale_phase = _scale_params(scale_node, rng)

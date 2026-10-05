@@ -417,6 +417,12 @@ colour/intensity/size. **Reset preset** restores the preset values. Click Render
 or Convert to apply changes; these are not live changes to an already rendered PNG.
 Original game recipes remain available as `*-source` design presets.
 
+Centred effects in softened mode use one round halo with opacity increasing smoothly toward
+the centre, plus distributed wisps. The three generic palettes share this compact glow carrier;
+small spark layers have three times their source particle count. Camera-facing cloud quads
+remain planar behind the hull throughout rotation; effect cropping preserves faint alpha tails.
+Source-style sampling retains original particle counts and textures.
+
 Both CLI commands support `--design-color`, `--body-tint`, `--rim-strength`,
 `--rim-power`, `--particle-color`, `--particle-intensity`, and `--particle-scale`.
 Choose a mesh-wide look with `--effect-preset frost`, `inferno`, or `legend`; use

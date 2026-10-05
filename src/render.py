@@ -53,7 +53,8 @@ def stable_crop(out_dir: str, raw: dict, padding: int, origin: str,
             if cancel_check:
                 cancel_check()
             alpha = Image.open(path).convert("RGBA").split()[-1]
-            bbox = alpha.point(lambda p: 255 if p > 10 else 0).getbbox()
+            threshold = raw.get('crop_alpha_threshold', 10)
+            bbox = alpha.point(lambda p: 255 if p > threshold else 0).getbbox()
             if not bbox:
                 continue
             x1, y1, x2, y2 = bbox
@@ -351,6 +352,9 @@ def render(mesh_name: str, overrides: dict, fx: bool = False,
             f"{raw_path}; check the preceding Blender output in the queue log")
     with open(raw_path, encoding="utf-8") as f:
         raw = json.load(f)
+    if cfg.get('particle_scene'):
+        # The faint outer tail is part of the effect, not disposable empty space.
+        raw['crop_alpha_threshold'] = 0
     os.remove(raw_path)  # keep sprites/ tidy
 
     align_box = None

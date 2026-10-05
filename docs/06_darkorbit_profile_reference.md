@@ -289,7 +289,8 @@ scene and sprite output. Portable GLB remains the base model/material.
 Tunable presets anchor emitters to the imported hull bounds centre, measured
 before outline or particles are added. Both the recipe offset (`ice_cloud`
 Y=-30) and fixed AWP layer translation (glow Y=-50) are removed for these
-presets. Animated motion, emitter scale, colours, and intensity are unchanged.
+presets. Original animation curves, emitter scale and RGB hue are retained; softened cloud
+positions/density receive the distribution treatment described below.
 The anchor is in the turntable root's local coordinates, so it rotates with the
 ship. Camera fitting includes the same anchor. Source recipes retain their
 original offsets. This applies to sprite renders and packed Blender snapshots.
@@ -301,5 +302,53 @@ For centred tunable effects, billboard cloud/halo quads are moved behind the
 furthest visible hull bound along camera viewing rays. The bound is recomputed
 per frame, including turntable rotation. Perspective ray projection preserves
 the apparent centre and size; orthographic cameras use a parallel depth offset.
-The hull then occludes the mist with ordinary depth testing. Non-billboard sparks
-keep their original depth, and source recipes keep their original placement.
+Each centred billboard is projected onto one common camera-depth plane behind the hull,
+including corners already behind the hull. This keeps the quad planar and avoids UV/depth
+changes as a rotating hull crosses individual corners. Perspective ray projection preserves
+its screen position; orthographic projection uses a parallel translation. Particle materials
+are explicitly double-sided. The hull occludes mist with ordinary depth testing; sparks and
+source recipe placement retain their existing behavior.
+
+### Distributed soft clouds (2026-10-05)
+
+Centred billboard `cloud` layers in softened mode distribute their emitters across a
+deterministic golden-angle disk in the model's ground plane. The disk radius is 30% of the
+source layer's largest quad dimension; offsets are recentered to a zero mean so a small cloud
+layer does not drift off the hull. Each layer divides particle alpha by the square root of its particle count,
+bounding additive overlap instead of creating a saturated central lamp. Original animation
+positions, lifetime curves and RGB hue remain, with the stable disk offsets added to positions.
+Frost, Inferno and Legend generic presets share one centred `frost_ship_trail/glow` carrier;
+the two fire palettes also select its wider `sparcles` field, recoloured with their own palette,
+while retaining their original fire/spark recipes. This adds 150 sparks per palette in softened
+mode; the fire/ice-cloud emitters alone concentrate tiny embers near the hull centre.
+The carrier uses one particle with 50% of the source quad dimensions and no disk offset.
+Its circular density increases toward the centre and fades smoothly at the edge, without
+noise distorting the outline. This replaces the oversized cluster of four displaced glow disks.
+Centred softened layers containing `sparcl` in their source name sample three times their
+source particle count, preserving the original seeded movement/lifetime distribution.
+
+Distributed mist uses a single analytic density field instead of multiplying a centrally bright
+RGB texture, its alpha texture and another radial mask. Soft-edge density decreases continuously
+from the centre to zero before the quad boundary, with mild noise variation on the distributed
+wisps only. There is no full-bright inner plateau.
+Particle camera fitting bounds quads with the largest emitter axis scale, accounting for
+world-axis nonuniform scaling under a tilted camera. Effect exports crop on nonzero alpha,
+preserving low-opacity outer tails rather than cutting them at alpha 10. Ordinary model-only
+exports retain their previous crop threshold. `effect_style=source` preserves source sampling
+and source clouds without the distribution/density treatment or increased spark count.
+
+The balanced generic appearance can also be combined with a geometry/design selector:
+`--design spectrum-frozen --effect-preset frost` uses Spectrum's base hull/textures and
+the same approved round halo/tint/rim as the generic Frost preset. Select `pet-15`
+with `--design pet-frozen` for the fixed PET design geometry and shared PET textures.
+Use `inferno`/`legend` for the corresponding design key and effect preset. Mesh-relative
+emitter scaling adapts the field to each hull. These high-resolution source renders
+do not perform the consuming game's runtime hull-size calibration.
+
+For unresampled source sprites, select the mesh directly and omit `--design`:
+`render goliath-spectrum --effect-preset frost --profile darkorbit --quality high
+--resolution 512 --samples 128 --frames 72 --start-angle 90 --mode ship`.
+The design-selector path automatically applies reference-size fitting when a local
+reference atlas is available. Direct mesh selection retains the rendered pixel density;
+stable cropping removes empty borders without resizing. `pet-15` directly resolves
+the same shared PET textures, so it also supports this source-output workflow.

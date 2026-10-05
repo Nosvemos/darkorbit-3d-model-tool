@@ -70,6 +70,9 @@ class Scene:
             mat.use_nodes = True
             mat.surface_render_method = 'BLENDED'
             mat.use_transparency_overlap = True
+            mat.use_backface_culling = False
+            if hasattr(mat, 'show_transparent_back'):
+                mat.show_transparent_back = True
             g = Graph(mat)
             tex = g.texture(layer['texture'])
             tex.extension = 'REPEAT' if layer.get('repeat') else 'EXTEND'
@@ -83,14 +86,29 @@ class Scene:
                 texture_color = g.vec('SCALE', (1, 1, 1), peak)
             color = g.vec('ADD', g.vec('MULTIPLY', texture_color, m.outputs['Color']), o.outputs['Color'])
             alpha = g.math('ADD', g.math('MULTIPLY', tex.outputs['Alpha'], m.outputs['Alpha']), o.outputs['Alpha'], clamp=True)
+            if layer.get('distributed_cloud'):
+                # Legacy glow textures already concentrate RGB and alpha in
+                # the middle. Multiplying both by another radial mask makes
+                # a tiny hot spot. Mist uses one smooth density field instead.
+                color = g.vec('ADD', m.outputs['Color'], o.outputs['Color'])
+                alpha = g.math('ADD', m.outputs['Alpha'], o.outputs['Alpha'], clamp=True)
             if layer.get('soft_edges'):
                 uv = g.node('TexCoord').outputs['UV']
                 centered = g.vec('SUBTRACT', uv, (.5, .5, 0))
                 radius2 = g.vec('DOT_PRODUCT', centered, centered)
-                # Circular C1 falloff: full within r=.2, zero before r=.5.
-                t = g.math('DIVIDE', g.math('SUBTRACT', .24, radius2), .20, clamp=True)
+                # No flat bright core or sudden edge: density changes smoothly
+                # across the whole disk and reaches zero before the quad border.
+                t = g.math('DIVIDE', g.math('SUBTRACT', .24, radius2), .24, clamp=True)
                 smooth = g.math('MULTIPLY', g.math('MULTIPLY', t, t), g.math('SUBTRACT', 3, g.math('MULTIPLY', 2, t)))
                 alpha = g.math('MULTIPLY', alpha, smooth)
+                if layer.get('distributed_cloud') and not layer.get('round_halo'):
+                    noise = g.node('TexNoise')
+                    g.put(g.vec('SCALE', uv, 3.0), noise.inputs['Vector'])
+                    noise.inputs['Scale'].default_value = 1.0
+                    noise.inputs['Detail'].default_value = 2.0
+                    # Gentle texture variation, not a solid circular lamp.
+                    density = g.math('ADD', .55, g.math('MULTIPLY', noise.outputs['Fac'], .45))
+                    alpha = g.math('MULTIPLY', alpha, density)
             if layer['blend'] == 'add':
                 # Transparent + emission implements ONE / ONE accumulation;
                 # compositor derives an export alpha from accumulated radiance.
@@ -109,9 +127,10 @@ class Scene:
         inverse_root = self.root.matrix_world.inverted()
         eye = self.camera.matrix_world.translation
         forward = (self.camera.matrix_world.to_3x3() @ Vector((0, 0, -1))).normalized()
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        evaluated_hulls = [ob.evaluated_get(depsgraph) for ob in self.hull_objects if not ob.hide_render]
         far_depth = max(((ob.matrix_world @ Vector(corner) - eye).dot(forward)
-                         for ob in self.hull_objects if not ob.hide_render
-                         for corner in ob.bound_box), default=0.) + 1.
+                         for ob in evaluated_hulls for corner in ob.bound_box), default=0.) + 1.
 
         for layer, ob, mult, offset in self.layers:
             behind_hull = layer.get('center_on_mesh') and layer['billboard']
@@ -141,18 +160,21 @@ class Scene:
                     else:
                         spin = Vector((1, 0, 0)).rotation_difference(Vector(p['heading']).normalized()).to_matrix() @ spin
                 w, h = p['size']
-                for k, (u, v) in enumerate(((-.5, -.5), (.5, -.5), (.5, .5), (-.5, .5))):
-                    world = center + basis @ spin @ Vector((u*w*sx, v*h*sy, 0))
+                corners = [center + basis @ spin @ Vector((u*w*sx, v*h*sy, 0))
+                           for u, v in ((-.5, -.5), (.5, -.5), (.5, .5), (-.5, .5))]
+                plane_depth = max(far_depth, *((world - eye).dot(forward) for world in corners)) + .1
+                for k, world in enumerate(corners):
                     if behind_hull:
                         ray = world - eye
                         depth = ray.dot(forward)
-                        if depth > 0 and depth < far_depth:
-                            # Move along the viewing ray: retain the screen
-                            # centre/size while the opaque hull occludes mist.
+                        if depth > 0:
+                            # All corners share one camera-facing depth plane.
+                            # Conditional per-corner movement warps the quad/UVs
+                            # as hull bounds cross it during a rotation.
                             if self.camera.data.type == 'ORTHO':
-                                world += forward * (far_depth - depth)
+                                world += forward * (plane_depth - depth)
                             else:
-                                world = eye + ray * (far_depth / depth)
+                                world = eye + ray * (plane_depth / depth)
                     ob.data.vertices[i*4+k].co = inverse_root @ world
                     mult.data[i*4+k].color = p['color'][:4]
                     offset.data[i*4+k].color = p['color'][4:]
